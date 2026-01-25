@@ -10,6 +10,8 @@ const HOLECOLOR = new Color(0.97, 0.6, 0.22);
 const HOLESIZE = 1;
 const BOARDSIZE = 1.5;
 
+const MOVEGUIDES = true;
+
 const PLAYERS = [
 	{ id: "p4", turnOrder: 4, color: MAGENTA },
 	{ id: "p5", turnOrder: 6, color: YELLOW },
@@ -34,18 +36,31 @@ marble = (player) => ({
 });
 empty = () => ({ color: HOLECOLOR });
 
-held = (hole = null, marble = empty()) => ({ hole, marble });
+held = (hole = null, marble = empty()) => ({
+	hole,
+	marble,
+	moves: (board) => validMoves(board, hole, marble),
+});
+
+validMoves = (board, hole, marble) => {
+	if (!hole) return [];
+	let validMoves = [];
+	let nonHoppingMoves = neighbors(board, hole).filter(
+		(hole) => hole.marble.color === HOLECOLOR,
+	);
+	return [...validMoves, ...nonHoppingMoves];
+};
 
 // search through board for holes that are neighbors with the given hole
-neighbors = (board, hole) => {
+neighbors = (board, hole, distance = 1) => {
 	const { q, r } = hole.coords;
 	const neighborCoords = [
-		{ q: q + 1, r: r }, // right
-		{ q: q, r: r + 1 }, // up right
-		{ q: q - 1, r: r + 1 }, // up left
-		{ q: q - 1, r: r }, // left
-		{ q: q, r: r - 1 }, // down left
-		{ q: q + 1, r: r - 1 }, // down right
+		{ q: q + distance, r: r }, // right
+		{ q: q, r: r + distance }, // up right
+		{ q: q - distance, r: r + distance }, // up left
+		{ q: q - distance, r: r }, // left
+		{ q: q, r: r - distance }, // down left
+		{ q: q + distance, r: r - distance }, // down right
 	];
 
 	return board.filter((h) =>
@@ -73,10 +88,8 @@ nextPlayer = (player) => {
 	return PLAYERS.find((p) => p.turnOrder === nextTurnOrder);
 };
 
-// TODO take in
-// validMoves = (board, held) =>
-
 /////////////////////////////////////////////////////////////////////////////////
+
 function boardInit(radius) {
 	const board = [];
 	for (let q = -radius; q <= radius; q++) {
@@ -111,28 +124,35 @@ function gameInit() {
 	setCanvasFixedSize(vec2(1280, 720));
 
 	board = boardInit(8);
-	currentPlayer = PLAYERS[0];
+	currPlayer = PLAYERS[0];
 	currHeld = held();
 }
 
 function gameUpdate() {
 	if (mouseWasPressed(0)) {
 		let mouseHole = nearestHole(board, mousePos);
-		if (mouseHole.marble.player === currentPlayer.id)
+		if (mouseHole.marble.player === currPlayer.id)
 			currHeld = held(mouseHole, mouseHole.marble);
 	}
 	if (mouseWasReleased(0)) {
 		if (!currHeld.hole) return;
 		let mouseHole = nearestHole(board, mousePos);
-		if (mouseHole !== held.hole && mouseHole.marble.color === empty().color) {
+
+		if (!currHeld.moves(board).find((h) => h === mouseHole)) {
+			alert("Move not valid");
+		} else if (
+			mouseHole !== held.hole &&
+			mouseHole.marble.color === empty().color
+		) {
 			board = placeMarble(
 				placeMarble(board, mouseHole, currHeld.marble),
 				currHeld.hole,
 				empty(),
 			);
+			currPlayer = nextPlayer(currPlayer);
 		}
+
 		currHeld = held();
-		currentPlayer = nextPlayer(currentPlayer);
 	}
 }
 
@@ -142,8 +162,18 @@ function gameRender() {
 
 	drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
 
-	drawCircle(vec2(-12, 10), HOLESIZE * 2, currentPlayer.color);
+	drawCircle(vec2(-12, 10), HOLESIZE * 2, currPlayer.color);
 	drawText("Current Player: ", vec2(-12, 10), 1, BLACK, 0, BLACK);
+
+	if (MOVEGUIDES) {
+		for (const hole of currHeld.moves(board)) {
+			drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
+		}
+	}
+
+	for (const n of neighbors(board, nearestHole(board, mousePos), 2)) {
+		drawCircle(n.pos, HOLESIZE + 0.5, currPlayer.color);
+	}
 
 	for (const hole of board) {
 		drawCircle(hole.pos, HOLESIZE, HOLECOLOR);
