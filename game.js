@@ -10,6 +10,15 @@ const HOLECOLOR = new Color(0.97, 0.6, 0.22);
 const HOLESIZE = 1;
 const BOARDSIZE = 1.5;
 
+const PLAYERS = {
+	p1: { turnOrder: 1, color: BLUE },
+	p2: { turnOrder: 2, color: RED },
+	p3: { turnOrder: 3, color: GREEN },
+	p4: { turnOrder: 4, color: YELLOW },
+	p5: { turnOrder: 5, color: YELLOW },
+	p6: { turnOrder: 6, color: CYAN },
+};
+
 hole = (q, r, marble) => {
 	const x = (q + r * 0.5) * BOARDSIZE;
 	const y = ((r * Math.sqrt(3)) / 2) * BOARDSIZE;
@@ -21,15 +30,7 @@ hole = (q, r, marble) => {
 };
 marble = (player) => ({
 	player,
-	color:
-		{
-			p1: BLUE,
-			p2: RED,
-			p3: GREEN,
-			p4: YELLOW,
-			p5: PURPLE,
-			p6: CYAN,
-		}[player] || HOLECOLOR,
+	color: PLAYERS[player].color || HOLECOLOR,
 });
 empty = () => ({ color: HOLECOLOR });
 
@@ -53,11 +54,9 @@ neighbors = (board, hole) => {
 };
 
 nearestHole = (board, pos) =>
-	board.reduce((nearest, hole) => {
-		const nearestDist = nearest.pos.distance(pos);
-		const holeDist = hole.pos.distance(pos);
-		return holeDist < nearestDist ? hole : nearest;
-	});
+	board.reduce((nearest, hole) =>
+		hole.pos.distance(pos) < nearest.pos.distance(pos) ? hole : nearest,
+	);
 
 placeMarble = (board, hole, marble) =>
 	board.map((h) =>
@@ -99,8 +98,8 @@ function boardInit(radius) {
 
 function gameInit() {
 	setCanvasFixedSize(vec2(1280, 720));
-	board = boardInit(8);
 
+	board = boardInit(8);
 	currentPlayer = "p1";
 	held = { hole: null, marble: empty() };
 }
@@ -108,9 +107,11 @@ function gameInit() {
 function gameUpdate() {
 	if (mouseWasPressed(0)) {
 		let mouseHole = nearestHole(board, mousePos);
-		held = { hole: mouseHole, marble: mouseHole.marble };
+		if (mouseHole.marble.player === currentPlayer)
+			held = { hole: mouseHole, marble: mouseHole.marble };
 	}
 	if (mouseWasReleased(0)) {
+		if (!held.hole) return;
 		let mouseHole = nearestHole(board, mousePos);
 		if (mouseHole !== held.hole && mouseHole.marble.color === empty().color) {
 			board = placeMarble(
@@ -118,6 +119,8 @@ function gameUpdate() {
 				held.hole,
 				empty(),
 			);
+			// TODO use PLAYERS to find the player with the next hightest turn order
+			// currentPlayer = "p2";
 		}
 		held = { hole: null, marble: empty() };
 	}
@@ -128,6 +131,8 @@ function gameRender() {
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
 
 	drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
+
+	drawCircle(vec2(-10, 10), HOLESIZE * 2, PLAYERS[currentPlayer].color);
 
 	for (const hole of board) {
 		drawCircle(hole.pos, HOLESIZE, HOLECOLOR);
