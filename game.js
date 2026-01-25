@@ -19,7 +19,18 @@ hole = (q, r, marble) => {
 		marble,
 	};
 };
-marble = (player) => ({ player, color: player === "p1" ? BLUE : RED });
+marble = (player) => ({
+	player,
+	color:
+		{
+			p1: BLUE,
+			p2: RED,
+			p3: GREEN,
+			p4: YELLOW,
+			p5: PURPLE,
+			p6: CYAN,
+		}[player] || HOLECOLOR,
+});
 empty = () => ({ color: HOLECOLOR });
 
 // search through board for holes that are neighbors with the given hole
@@ -48,11 +59,6 @@ nearestHole = (board, pos) =>
 		return holeDist < nearestDist ? hole : nearest;
 	});
 
-distanceToCenter = (hole) => {
-	const { q, r, s } = hole.coords;
-	return Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
-};
-
 placeMarble = (board, hole, marble) =>
 	board.map((h) =>
 		h.coords.q === hole.coords.q && h.coords.r === hole.coords.r
@@ -61,44 +67,39 @@ placeMarble = (board, hole, marble) =>
 	);
 
 /////////////////////////////////////////////////////////////////////////////////
-function boardInit(radius, marble = empty()) {
+function boardInit(radius) {
 	const board = [];
 	for (let q = -radius; q <= radius; q++) {
 		const r1 = Math.max(-radius, -q - radius);
 		const r2 = Math.min(radius, -q + radius);
 		for (let r = r1; r <= r2; r++) {
-			board.push(hole(q, r, marble));
+			board.push(hole(q, r, empty()));
 		}
 	}
 
-	return board.filter((hole) => {
-		const dist = distanceToCenter(hole);
-		const { q, r, s } = hole.coords;
-
-		if (dist <= radius / 2) return true;
-
-		if (q + r === 4) return true;
-		if (q + s === 4) return true;
-		if (r + s === 4) return true;
-
-		if (q + r === -4) return true;
-		if (q + s === -4) return true;
-		if (r + s === -4) return true;
-
-		return false;
-	});
-
-	return board;
+	return board
+		.filter((hole) => {
+			const { q, r, s } = hole.coords;
+			return (
+				(q + r <= 4 && q + s <= 4 && r + s <= 4) ||
+				(q + r >= -4 && q + s >= -4 && r + s >= -4)
+			);
+		})
+		.map((hole) => {
+			const { q, r, s } = hole.coords;
+			if (r > 4) return { ...hole, marble: marble("p1") };
+			if (q > 4) return { ...hole, marble: marble("p2") };
+			if (s > 4) return { ...hole, marble: marble("p3") };
+			if (r < -4) return { ...hole, marble: marble("p4") };
+			if (q < -4) return { ...hole, marble: marble("p5") };
+			if (s < -4) return { ...hole, marble: marble("p6") };
+			return hole;
+		});
 }
 
 function gameInit() {
 	setCanvasFixedSize(vec2(1280, 720));
 	board = boardInit(8);
-
-	board = placeMarble(board, board[randInt(0, board.length)], marble("p1"));
-	board = placeMarble(board, board[randInt(0, board.length)], marble("p1"));
-	board = placeMarble(board, board[randInt(0, board.length)], marble("p1"));
-	board = placeMarble(board, board[randInt(0, board.length)], marble("p1"));
 
 	currentPlayer = "p1";
 	held = { hole: null, marble: empty() };
@@ -119,7 +120,6 @@ function gameUpdate() {
 			);
 		}
 		held = { hole: null, marble: empty() };
-		console.log(distanceToCenter(mouseHole), mouseHole.coords);
 	}
 }
 
