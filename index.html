@@ -21,12 +21,12 @@ const BOARDSIZE = 1.5;
 const MOVEGUIDES = true;
 
 const PLAYERS = [
-	{ id: "p4", turnOrder: 4, color: new Color().setHex("#ff0080") },
-	{ id: "p5", turnOrder: 6, color: new Color().setHex("#00ff88") },
-	{ id: "p6", turnOrder: 2, color: new Color().setHex("#8000ff") },
-	{ id: "p1", turnOrder: 1, color: new Color().setHex("#0080ff") },
-	{ id: "p2", turnOrder: 3, color: new Color().setHex("#ffff00") },
-	{ id: "p3", turnOrder: 5, color: new Color().setHex("#ff00ff") },
+	{ id: "p4", turnOrder: 4, color: new Color().setHex("#ff0080"), isComputer: true },
+	{ id: "p5", turnOrder: 6, color: new Color().setHex("#00ff88"), isComputer: false },
+	{ id: "p6", turnOrder: 2, color: new Color().setHex("#8000ff"), isComputer: false },
+	{ id: "p1", turnOrder: 1, color: new Color().setHex("#0080ff"), isComputer: false },
+	{ id: "p2", turnOrder: 3, color: new Color().setHex("#ffff00"), isComputer: false },
+	{ id: "p3", turnOrder: 5, color: new Color().setHex("#ff00ff"), isComputer: false },
 ];
 
 hole = (q, r, marble) => {
@@ -119,6 +119,43 @@ nextPlayer = (player) => {
 	return PLAYERS.find((p) => p.turnOrder === nextTurnOrder);
 };
 
+getAIMove = (player, board) => {
+	const playerMarbles = board.filter(hole => hole.marble?.player === player.id);
+	const allPossibleMoves = [];
+
+	for (const marbleHole of playerMarbles) {
+		const heldState = held(marbleHole.marble, marbleHole);
+		const validMovesList = validMoves(heldState, board);
+		
+		for (const moveHole of validMovesList) {
+			allPossibleMoves.push({
+				from: marbleHole,
+				to: moveHole,
+				moves: validMovesList.length
+			});
+		}
+	}
+
+	if (allPossibleMoves.length === 0) return null;
+
+	const weightedMoves = allPossibleMoves.map(move => {
+		let score = Math.random() * 10;
+
+		const distance = Math.abs(move.to.coords.q - move.from.coords.q) + 
+			Math.abs(move.to.coords.r - move.from.coords.r);
+		score += distance * 5;
+
+		if (move.moves > 2) {
+			score += move.moves * 3;
+		}
+
+		return { ...move, score };
+	});
+
+	weightedMoves.sort((a, b) => b.score - a.score);
+	return weightedMoves[0];
+};
+
 /////////////////////////////////////////////////////////////////////////////////
 
 function boardInit(radius) {
@@ -157,33 +194,66 @@ function gameInit() {
 	board = boardInit(8);
 	currPlayer = PLAYERS[0];
 	currHeld = held();
+	aiMoveTimer = null;
+	aiSelectedMove = null;
 }
 
 function gameUpdate() {
-	if (mouseWasPressed(0)) {
-		let mouseHole = nearestHole(board, mousePos);
-		if (mouseHole.marble.player === currPlayer.id)
-			currHeld = held(mouseHole, mouseHole.marble);
-	}
-	if (mouseWasReleased(0)) {
-		if (!currHeld.hole) return;
-		let mouseHole = nearestHole(board, mousePos);
-
-		if (!currHeld.moves(board).find((h) => h === mouseHole)) {
-			alert("Move not valid");
-		} else if (
-			mouseHole !== held.hole &&
-			mouseHole.marble.color === empty().color
-		) {
-			board = placeMarble(
-				placeMarble(board, mouseHole, currHeld.marble),
-				currHeld.hole,
-				empty(),
-			);
-			currPlayer = nextPlayer(currPlayer);
+	if (currPlayer.isComputer) {
+		if (!aiMoveTimer) {
+			aiMoveTimer = 60;
+			const aiMove = getAIMove(currPlayer, board);
+			if (aiMove) {
+				aiSelectedMove = aiMove;
+			}
 		}
+		
+		aiMoveTimer--;
+		
+		if (aiMoveTimer === 30 && aiSelectedMove) {
+			const heldState = held(aiSelectedMove.from, aiSelectedMove.from.marble);
+			currHeld = heldState;
+		}
+		
+		if (aiMoveTimer === 0 && aiSelectedMove) {
+			if (currHeld.hole) {
+				board = placeMarble(
+					placeMarble(board, aiSelectedMove.to, currHeld.marble),
+					currHeld.hole,
+					empty(),
+				);
+				currPlayer = nextPlayer(currPlayer);
+			}
+			currHeld = held();
+			aiMoveTimer = null;
+			aiSelectedMove = null;
+		}
+	} else {
+		if (mouseWasPressed(0)) {
+			let mouseHole = nearestHole(board, mousePos);
+			if (mouseHole.marble.player === currPlayer.id)
+				currHeld = held(mouseHole, mouseHole.marble);
+		}
+		if (mouseWasReleased(0)) {
+			if (!currHeld.hole) return;
+			let mouseHole = nearestHole(board, mousePos);
 
-		currHeld = held();
+			if (!currHeld.moves(board).find((h) => h === mouseHole)) {
+				alert("Move not valid");
+			} else if (
+				mouseHole !== held.hole &&
+				mouseHole.marble.color === empty().color
+			) {
+				board = placeMarble(
+					placeMarble(board, mouseHole, currHeld.marble),
+					currHeld.hole,
+					empty(),
+				);
+				currPlayer = nextPlayer(currPlayer);
+			}
+
+			currHeld = held();
+		}
 	}
 }
 
@@ -199,6 +269,14 @@ function gameRender() {
 	if (MOVEGUIDES) {
 		for (const hole of currHeld.moves(board)) {
 			drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
+		}
+	}
+
+	if (currPlayer.isComputer && aiSelectedMove) {
+		if (aiMoveTimer > 30) {
+			drawCircle(aiSelectedMove.from.pos, HOLESIZE + 0.35, WHITE);
+		} else if (aiMoveTimer > 0) {
+			drawCircle(aiSelectedMove.to.pos, HOLESIZE + 0.35, WHITE);
 		}
 	}
 

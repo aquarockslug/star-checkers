@@ -115,6 +115,36 @@ nextPlayer = (player) => {
 	return PLAYERS.find((p) => p.turnOrder === nextTurnOrder);
 };
 
+cpuMove = (board, player) => {
+	const playerMarbles = board.filter((h) => h.marble.player === player.id);
+	const validMovesList = [];
+
+	for (const marbleHole of playerMarbles) {
+		const moves = validMoves(board, marbleHole, marbleHole.marble);
+		for (const targetHole of moves) {
+			validMovesList.push({ from: marbleHole, to: targetHole });
+		}
+	}
+
+	if (validMovesList.length === 0) return null;
+
+	const randomMove =
+		validMovesList[Math.floor(Math.random() * validMovesList.length)];
+	return {
+		newBoard: placeMarble(
+			placeMarble(board, randomMove.to, randomMove.from.marble),
+			randomMove.from,
+			empty(),
+		),
+		from: randomMove.from,
+		to: randomMove.to,
+	};
+};
+
+cpuPlay = () => {
+	board = cpuMove(board, currPlayer).newBoard;
+};
+
 /////////////////////////////////////////////////////////////////////////////////
 
 function boardInit(radius) {
