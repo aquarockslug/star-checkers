@@ -48,6 +48,11 @@ nearestHole = (board, pos) =>
 		return holeDist < nearestDist ? hole : nearest;
 	});
 
+distanceToCenter = (hole) => {
+	const { q, r, s } = hole.coords;
+	return Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+};
+
 placeMarble = (board, hole, marble) =>
 	board.map((h) =>
 		h.coords.q === hole.coords.q && h.coords.r === hole.coords.r
@@ -65,12 +70,30 @@ function boardInit(radius, marble = empty()) {
 			board.push(hole(q, r, marble));
 		}
 	}
+
+	return board.filter((hole) => {
+		const dist = distanceToCenter(hole);
+		const { q, r, s } = hole.coords;
+
+		if (dist <= radius / 2) return true;
+
+		if (q + r === 4) return true;
+		if (q + s === 4) return true;
+		if (r + s === 4) return true;
+
+		if (q + r === -4) return true;
+		if (q + s === -4) return true;
+		if (r + s === -4) return true;
+
+		return false;
+	});
+
 	return board;
 }
 
 function gameInit() {
 	setCanvasFixedSize(vec2(1280, 720));
-	board = boardInit(4);
+	board = boardInit(8);
 
 	board = placeMarble(board, board[randInt(0, board.length)], marble("p1"));
 	board = placeMarble(board, board[randInt(0, board.length)], marble("p1"));
@@ -88,7 +111,7 @@ function gameUpdate() {
 	}
 	if (mouseWasReleased(0)) {
 		let mouseHole = nearestHole(board, mousePos);
-		if (mouseHole != held.hole && mouseHole.marble.color == empty().color) {
+		if (mouseHole !== held.hole && mouseHole.marble.color === empty().color) {
 			board = placeMarble(
 				placeMarble(board, mouseHole, held.marble),
 				held.hole,
@@ -96,6 +119,7 @@ function gameUpdate() {
 			);
 		}
 		held = { hole: null, marble: empty() };
+		console.log(distanceToCenter(mouseHole), mouseHole.coords);
 	}
 }
 
@@ -114,7 +138,7 @@ function gameRender() {
 		drawCircle(held.hole.pos, HOLESIZE + 0.25, BLACK);
 		drawCircle(held.hole.pos, HOLESIZE, HOLECOLOR);
 	}
-	if (held.marble.color != empty().color)
+	if (held.marble.color !== empty().color)
 		drawCircle(mousePos, HOLESIZE + 0.25, held.marble.color);
 }
 function postGameRender() {}
