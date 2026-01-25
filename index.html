@@ -21,12 +21,12 @@ const BOARDSIZE = 1.5;
 const MOVEGUIDES = true;
 
 const PLAYERS = [
-	{ id: "p4", turnOrder: 4, color: BLUE },
-	{ id: "p5", turnOrder: 6, color: YELLOW },
-	{ id: "p6", turnOrder: 2, color: CYAN },
-	{ id: "p1", turnOrder: 1, color: MAGENTA },
-	{ id: "p2", turnOrder: 3, color: RED },
-	{ id: "p3", turnOrder: 5, color: GREEN },
+	{ id: "p4", turnOrder: 4, color: new Color().setHex("#ff0080") },
+	{ id: "p5", turnOrder: 6, color: new Color().setHex("#00ff88") },
+	{ id: "p6", turnOrder: 2, color: new Color().setHex("#8000ff") },
+	{ id: "p1", turnOrder: 1, color: new Color().setHex("#0080ff") },
+	{ id: "p2", turnOrder: 3, color: new Color().setHex("#ffff00") },
+	{ id: "p3", turnOrder: 5, color: new Color().setHex("#ff00ff") },
 ];
 
 hole = (q, r, marble) => {
