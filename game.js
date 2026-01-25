@@ -11,12 +11,12 @@ const HOLESIZE = 1;
 const BOARDSIZE = 1.5;
 
 const PLAYERS = [
-	{ id: "p1", turnOrder: 1, color: BLUE },
-	{ id: "p2", turnOrder: 3, color: RED },
-	{ id: "p3", turnOrder: 5, color: GREEN },
 	{ id: "p4", turnOrder: 4, color: MAGENTA },
 	{ id: "p5", turnOrder: 6, color: YELLOW },
 	{ id: "p6", turnOrder: 2, color: CYAN },
+	{ id: "p1", turnOrder: 1, color: BLUE },
+	{ id: "p2", turnOrder: 3, color: RED },
+	{ id: "p3", turnOrder: 5, color: GREEN },
 ];
 
 hole = (q, r, marble) => {
@@ -33,6 +33,8 @@ marble = (player) => ({
 	color: PLAYERS.find((p) => p.id === player)?.color || HOLECOLOR,
 });
 empty = () => ({ color: HOLECOLOR });
+
+held = (hole = null, marble = empty()) => ({ hole, marble });
 
 // search through board for holes that are neighbors with the given hole
 neighbors = (board, hole) => {
@@ -71,6 +73,9 @@ nextPlayer = (player) => {
 	return PLAYERS.find((p) => p.turnOrder === nextTurnOrder);
 };
 
+// TODO take in
+// validMoves = (board, held) =>
+
 /////////////////////////////////////////////////////////////////////////////////
 function boardInit(radius) {
 	const board = [];
@@ -107,26 +112,26 @@ function gameInit() {
 
 	board = boardInit(8);
 	currentPlayer = PLAYERS[0];
-	held = { hole: null, marble: empty() };
+	currHeld = held();
 }
 
 function gameUpdate() {
 	if (mouseWasPressed(0)) {
 		let mouseHole = nearestHole(board, mousePos);
 		if (mouseHole.marble.player === currentPlayer.id)
-			held = { hole: mouseHole, marble: mouseHole.marble };
+			currHeld = held(mouseHole, mouseHole.marble);
 	}
 	if (mouseWasReleased(0)) {
-		if (!held.hole) return;
+		if (!currHeld.hole) return;
 		let mouseHole = nearestHole(board, mousePos);
 		if (mouseHole !== held.hole && mouseHole.marble.color === empty().color) {
 			board = placeMarble(
-				placeMarble(board, mouseHole, held.marble),
-				held.hole,
+				placeMarble(board, mouseHole, currHeld.marble),
+				currHeld.hole,
 				empty(),
 			);
 		}
-		held = { hole: null, marble: empty() };
+		currHeld = held();
 		currentPlayer = nextPlayer(currentPlayer);
 	}
 }
@@ -145,11 +150,11 @@ function gameRender() {
 		drawCircle(hole.pos, HOLESIZE - 0.25, hole.marble?.color);
 	}
 
-	if (held.hole) {
-		drawCircle(held.hole.pos, HOLESIZE + 0.25, BLACK);
-		drawCircle(held.hole.pos, HOLESIZE, HOLECOLOR);
+	if (currHeld.hole) {
+		drawCircle(currHeld.hole.pos, HOLESIZE + 0.25, BLACK);
+		drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
 	}
-	if (held.marble.color !== empty().color)
-		drawCircle(mousePos, HOLESIZE + 0.25, held.marble.color);
+	if (currHeld.marble.color !== empty().color)
+		drawCircle(mousePos, HOLESIZE + 0.25, currHeld.marble.color);
 }
 function postGameRender() {}
