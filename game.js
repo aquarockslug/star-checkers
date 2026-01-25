@@ -1,5 +1,6 @@
 const BUTTONCLICKSOUND = new Sound([
-	0.08, 0, 250, 0.01, 0.01, 0.02, 1, 0.8, 0, 0, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0.04, 0.05, 350,
+	0.08, 0, 250, 0.01, 0.01, 0.02, 1, 0.8, 0, 0, 0, 0, 0, 0.3, 0, 0, 0, 0.3,
+	0.04, 0.05, 350,
 ]);
 
 const SANDRED = new Color(0.78, 0.28, 0.03);
@@ -33,7 +34,11 @@ neighbors = (board, hole) => {
 		{ q: q + 1, r: r - 1 }, // down right
 	];
 
-	return board.filter((h) => neighborCoords.some((coord) => h.coords.q === coord.q && h.coords.r === coord.r));
+	return board.filter((h) =>
+		neighborCoords.some(
+			(coord) => h.coords.q === coord.q && h.coords.r === coord.r,
+		),
+	);
 };
 
 nearestHole = (board, pos) =>
@@ -44,7 +49,11 @@ nearestHole = (board, pos) =>
 	});
 
 placeMarble = (board, hole, marble) =>
-	board.map((h) => (h.coords.q === hole.coords.q && h.coords.r === hole.coords.r ? { ...h, marble } : h));
+	board.map((h) =>
+		h.coords.q === hole.coords.q && h.coords.r === hole.coords.r
+			? { ...h, marble }
+			: h,
+	);
 
 /////////////////////////////////////////////////////////////////////////////////
 function boardInit(radius, marble = empty()) {
@@ -78,29 +87,34 @@ function gameUpdate() {
 		held = { hole: mouseHole, marble: mouseHole.marble };
 	}
 	if (mouseWasReleased(0)) {
-		if (nearestHole(board, mousePos) != held.hole) {
-			board = placeMarble(board, nearestHole(board, mousePos), held.marble);
-			board = placeMarble(board, held.hole, empty());
+		let mouseHole = nearestHole(board, mousePos);
+		if (mouseHole != held.hole && mouseHole.marble.color == empty().color) {
+			board = placeMarble(
+				placeMarble(board, mouseHole, held.marble),
+				held.hole,
+				empty(),
+			);
 		}
 		held = { hole: null, marble: empty() };
 	}
 }
 
 function gameRender() {
-	drawRect(vec2(0, 0), vec2(32), SANDLIGHTBROWN);
+	drawRect(vec2(), vec2(32), SANDLIGHTBROWN);
+	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
 
 	drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
 
 	for (const hole of board) {
-		const marble = hole.marble;
-
 		drawCircle(hole.pos, HOLESIZE, HOLECOLOR);
-		drawCircle(hole.pos, HOLESIZE - 0.25, marble?.color);
+		drawCircle(hole.pos, HOLESIZE - 0.25, hole.marble?.color);
 	}
 
-	if (mouseIsDown(0)) {
-		if (held.hole) drawCircle(held.hole.pos, HOLESIZE, HOLECOLOR);
-		if (held.marble.color != empty().color) drawCircle(mousePos, HOLESIZE + 0.25, held.marble.color);
+	if (held.hole) {
+		drawCircle(held.hole.pos, HOLESIZE + 0.25, BLACK);
+		drawCircle(held.hole.pos, HOLESIZE, HOLECOLOR);
 	}
+	if (held.marble.color != empty().color)
+		drawCircle(mousePos, HOLESIZE + 0.25, held.marble.color);
 }
 function postGameRender() {}
