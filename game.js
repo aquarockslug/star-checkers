@@ -45,10 +45,38 @@ held = (hole = null, marble = empty()) => ({
 validMoves = (board, hole, marble) => {
 	if (!hole) return [];
 	let validMoves = [];
+
+	// Non-hopping moves (adjacent empty holes)
 	let nonHoppingMoves = neighbors(board, hole).filter(
-		(hole) => hole.marble.color === HOLECOLOR,
+		(h) => h.marble.color === HOLECOLOR,
 	);
-	return [...validMoves, ...nonHoppingMoves];
+	validMoves.push(...nonHoppingMoves);
+
+	// Hopping moves (jump over marbles to empty opposite holes)
+	const adjacentHoles = neighbors(board, hole);
+	for (const adjacent of adjacentHoles) {
+		// Check if adjacent hole has a marble
+		if (adjacent.marble.color !== HOLECOLOR) {
+			// Calculate the direction vector from held hole to adjacent hole
+			const dirQ = adjacent.coords.q - hole.coords.q;
+			const dirR = adjacent.coords.r - hole.coords.r;
+
+			// Find the landing hole (one more step in same direction)
+			const landingQ = hole.coords.q + dirQ * 2;
+			const landingR = hole.coords.r + dirR * 2;
+
+			// Find if landing hole exists and is empty
+			const landingHole = board.find(
+				(h) => h.coords.q === landingQ && h.coords.r === landingR,
+			);
+
+			if (landingHole && landingHole.marble.color === HOLECOLOR) {
+				validMoves.push(landingHole);
+			}
+		}
+	}
+
+	return validMoves;
 };
 
 // search through board for holes that are neighbors with the given hole
@@ -169,10 +197,6 @@ function gameRender() {
 		for (const hole of currHeld.moves(board)) {
 			drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
 		}
-	}
-
-	for (const n of neighbors(board, nearestHole(board, mousePos), 2)) {
-		drawCircle(n.pos, HOLESIZE + 0.5, currPlayer.color);
 	}
 
 	for (const hole of board) {
