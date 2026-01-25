@@ -45,4 +45,4 @@ local push = function(file, address, channel)
 	os.execute(string.format("butler push %s %s:%s", file, address, channel))
 end
 
-push("./index.html", "aquarock/mancalajs", "html5")
+push("./index.html", "aquarock/star-checkers", "html5")

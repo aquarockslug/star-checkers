@@ -13,10 +13,10 @@ const BOARDSIZE = 1.5;
 const MOVEGUIDES = true;
 
 const PLAYERS = [
-	{ id: "p4", turnOrder: 4, color: MAGENTA },
+	{ id: "p4", turnOrder: 4, color: BLUE },
 	{ id: "p5", turnOrder: 6, color: YELLOW },
 	{ id: "p6", turnOrder: 2, color: CYAN },
-	{ id: "p1", turnOrder: 1, color: BLUE },
+	{ id: "p1", turnOrder: 1, color: MAGENTA },
 	{ id: "p2", turnOrder: 3, color: RED },
 	{ id: "p3", turnOrder: 5, color: GREEN },
 ];
@@ -35,51 +35,46 @@ marble = (player) => ({
 	color: PLAYERS.find((p) => p.id === player)?.color || HOLECOLOR,
 });
 empty = () => ({ color: HOLECOLOR });
-
 held = (hole = null, marble = empty()) => ({
 	hole,
 	marble,
 	moves: (board) => validMoves(board, hole, marble),
 });
 
-validMoves = (board, hole, marble) => {
-	if (!hole) return [];
-	let validMoves = [];
+hoppingMoves = (board, currentHole, visited = new Set()) => {
+	const key = `${currentHole.coords.q},${currentHole.coords.r}`;
+	if (visited.has(key)) return [];
 
-	// Non-hopping moves (adjacent empty holes)
-	let nonHoppingMoves = neighbors(board, hole).filter(
-		(h) => h.marble.color === HOLECOLOR,
-	);
-	validMoves.push(...nonHoppingMoves);
+	const newVisited = new Set(visited).add(key);
 
-	// Hopping moves (jump over marbles to empty opposite holes)
-	const adjacentHoles = neighbors(board, hole);
-	for (const adjacent of adjacentHoles) {
-		// Check if adjacent hole has a marble
-		if (adjacent.marble.color !== HOLECOLOR) {
-			// Calculate the direction vector from held hole to adjacent hole
-			const dirQ = adjacent.coords.q - hole.coords.q;
-			const dirR = adjacent.coords.r - hole.coords.r;
+	findTarget = (board, currentHole, adjacent) => {
+		const dir = {
+			q: adjacent.coords.q - currentHole.coords.q,
+			r: adjacent.coords.r - currentHole.coords.r,
+		};
+		return board.find(
+			(h) =>
+				h.coords.q === currentHole.coords.q + dir.q * 2 &&
+				h.coords.r === currentHole.coords.r + dir.r * 2 &&
+				h.marble.color === HOLECOLOR,
+		);
+	};
 
-			// Find the landing hole (one more step in same direction)
-			const landingQ = hole.coords.q + dirQ * 2;
-			const landingR = hole.coords.r + dirR * 2;
-
-			// Find if landing hole exists and is empty
-			const landingHole = board.find(
-				(h) => h.coords.q === landingQ && h.coords.r === landingR,
-			);
-
-			if (landingHole && landingHole.marble.color === HOLECOLOR) {
-				validMoves.push(landingHole);
-			}
-		}
-	}
-
-	return validMoves;
+	return neighbors(board, currentHole)
+		.filter((adj) => adj.marble.color !== HOLECOLOR)
+		.map((adj) => findTarget(board, currentHole, adj))
+		.filter(Boolean)
+		.flatMap((target) => [target, ...hoppingMoves(board, target, newVisited)]);
 };
 
-// search through board for holes that are neighbors with the given hole
+validMoves = (board, hole, marble) =>
+	hole
+		? [
+				...neighbors(board, hole).filter((h) => h.marble.color === HOLECOLOR),
+				...hoppingMoves(board, hole),
+			]
+		: [];
+
 neighbors = (board, hole, distance = 1) => {
 	const { q, r } = hole.coords;
 	const neighborCoords = [
@@ -149,7 +144,7 @@ function boardInit(radius) {
 }
 
 function gameInit() {
-	setCanvasFixedSize(vec2(1280, 720));
+	setCanvasFixedSize(vec2(720, 720));
 
 	board = boardInit(8);
 	currPlayer = PLAYERS[0];
@@ -186,12 +181,12 @@ function gameUpdate() {
 
 function gameRender() {
 	drawRect(vec2(), vec2(32), SANDLIGHTBROWN);
+	drawCircle(vec2(), BOARDSIZE * 15.5, currPlayer.color);
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
 
 	drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
 
-	drawCircle(vec2(-12, 10), HOLESIZE * 2, currPlayer.color);
-	drawText("Current Player: ", vec2(-12, 10), 1, BLACK, 0, BLACK);
+	// drawText("Current Player: ", vec2(-6, 8), 1, BLACK, 0, BLACK);
 
 	if (MOVEGUIDES) {
 		for (const hole of currHeld.moves(board)) {
