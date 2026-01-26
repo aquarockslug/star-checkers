@@ -106,6 +106,58 @@ hoppingMoves = (board, currentHole, visited = new Set()) => {
 		.flatMap((target) => [target, ...hoppingMoves(board, target, newVisited)]);
 };
 
+// Calculate the complete path including intermediate hop positions
+calculateMovePath = (board, from, to) => {
+	// Handle edge cases
+	if (!from || !to || from === to) return [from];
+
+	const path = [from];
+
+	// Simple adjacent move
+	if (neighbors(board, from).includes(to)) {
+		path.push(to);
+		return path;
+	}
+
+	// Find hopping path
+	const findPath = (current, target, visited = new Set()) => {
+		const key = `${current.coords.q},${current.coords.r}`;
+		if (visited.has(key)) return null;
+		if (current === target) return [current];
+
+		const newVisited = new Set(visited).add(key);
+
+		// Check hopping moves from current position
+		const hops = neighbors(board, current)
+			.filter((adj) => adj.marble.color !== HOLECOLOR)
+			.map((adj) => {
+				const dir = {
+					q: adj.coords.q - current.coords.q,
+					r: adj.coords.r - current.coords.r,
+				};
+				return board.find(
+					(h) =>
+						h.coords.q === current.coords.q + dir.q * 2 &&
+						h.coords.r === current.coords.r + dir.r * 2 &&
+						h.marble.color === HOLECOLOR,
+				);
+			})
+			.filter(Boolean);
+
+		for (const hop of hops) {
+			const result = findPath(hop, target, newVisited);
+			if (result) {
+				return [current, ...result];
+			}
+		}
+
+		return null;
+	};
+
+	const fullPath = findPath(from, to);
+	return fullPath || path;
+};
+
 validMoves = (board, hole, marble) =>
 	hole
 		? [
@@ -184,16 +236,61 @@ cpuMove = (board, player) => {
 
 let cpuMoveTimer = 0;
 let cpuMoveAnimation = null;
+let humanMoveAnimation = null;
+
+// Easing functions for smooth animation
+const easing = {
+	easeInOut: (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
+	easeOut: (t) => t * (2 - t),
+	easeIn: (t) => t * t,
+	linear: (t) => t,
+};
+
+// Animation system for marble movement
+class MoveAnimation {
+	constructor(color, path, duration = 30, easingType = "easeInOut") {
+		this.color = color;
+		this.path = path;
+		this.duration = duration;
+		this.progress = 0;
+		this.easing = easing[easingType] || easing.linear;
+	}
+
+	update() {
+		this.progress += 1 / this.duration;
+		return this.progress >= 1;
+	}
+
+	getCurrentPosition() {
+		const totalSegments = this.path.length - 1;
+		const scaledProgress = this.easing(Math.min(this.progress, 1));
+		const currentSegmentFloat = scaledProgress * totalSegments;
+		const currentSegment = Math.floor(currentSegmentFloat);
+		const segmentProgress = currentSegmentFloat - currentSegment;
+
+		if (currentSegment >= totalSegments) {
+			return this.path[this.path.length - 1].pos;
+		}
+
+		const from = this.path[currentSegment].pos;
+		const to = this.path[currentSegment + 1].pos;
+
+		return from.lerp(to, segmentProgress);
+	}
+}
 
 cpuPlay = (board, player) => {
 	const moveResult = cpuMove(board, player);
 	if (!moveResult) return;
-	cpuMoveAnimation = {
-		color: player.color,
-		from: moveResult.from,
-		to: moveResult.to,
-		progress: 0,
-	};
+
+	const path = calculateMovePath(board, moveResult.from, moveResult.to);
+	const duration = Math.max(15, Math.min(35, path.length * 8)); // Scale duration with path length
+	cpuMoveAnimation = new MoveAnimation(
+		player.color,
+		path,
+		duration,
+		"easeInOut",
+	);
 	BUTTONCLICKSOUND.play();
 	return moveResult.newBoard;
 };
@@ -275,13 +372,23 @@ function gameInit() {
 	currHeld = held();
 	cpuMoveTimer = 0;
 	cpuMoveAnimation = null;
+	humanMoveAnimation = null;
 }
 
 function gameUpdate() {
 	if (cpuMoveAnimation) {
-		cpuMoveAnimation.progress += 0.1;
-		if (cpuMoveAnimation.progress >= 1) {
+		const isComplete = cpuMoveAnimation.update();
+		if (isComplete) {
 			cpuMoveAnimation = null;
+		}
+		return;
+	}
+
+	if (humanMoveAnimation) {
+		const isComplete = humanMoveAnimation.update();
+		if (isComplete) {
+			humanMoveAnimation = null;
+			currPlayer = nextPlayer(currPlayer);
 		}
 		return;
 	}
@@ -314,16 +421,26 @@ function gameUpdate() {
 			// alert("Move not valid");
 			console.log("Move not valid");
 		} else if (
-			mouseHole !== held.hole &&
+			mouseHole !== currHeld.hole &&
 			mouseHole.marble.color === empty().color
 		) {
+			// Create animation for human move
+			const path = calculateMovePath(board, currHeld.hole, mouseHole);
+			const duration = Math.max(12, Math.min(25, path.length * 6)); // Faster for human moves
+			humanMoveAnimation = new MoveAnimation(
+				currHeld.marble.color,
+				path,
+				duration,
+				"easeInOut",
+			);
+
+			// Update board state immediately (animation is visual only)
 			board = placeMarble(
 				placeMarble(board, mouseHole, currHeld.marble),
 				currHeld.hole,
 				empty(),
 			);
 			BUTTONCLICKSOUND.play();
-			currPlayer = nextPlayer(currPlayer);
 		}
 
 		currHeld = held();
@@ -370,11 +487,13 @@ function gameRender() {
 	}
 
 	if (cpuMoveAnimation) {
-		const animPos = cpuMoveAnimation.from.pos.lerp(
-			cpuMoveAnimation.to.pos,
-			Math.min(cpuMoveAnimation.progress, 1),
-		);
+		const animPos = cpuMoveAnimation.getCurrentPosition();
 		drawCircle(animPos, HOLESIZE + 0.25, cpuMoveAnimation.color);
+	}
+
+	if (humanMoveAnimation) {
+		const animPos = humanMoveAnimation.getCurrentPosition();
+		drawCircle(animPos, HOLESIZE + 0.25, humanMoveAnimation.color);
 	}
 
 	if (currHeld.marble.color !== empty().color && isHumanPlayer)
