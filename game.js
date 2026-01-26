@@ -15,17 +15,48 @@ const CPU_MOVE_DELAY = 1;
 const MOVEGUIDES = true;
 
 const PLAYERS = [
-	{ id: "p1", turnOrder: 4, color: new Color().setHex("#0080ff"), cpu: true },
-	{ id: "p2", turnOrder: 6, color: new Color().setHex("#ffff00"), cpu: true },
-	{ id: "p3", turnOrder: 2, color: new Color().setHex("#ff00ff"), cpu: true },
+	{
+		id: "p1",
+		turnOrder: 4,
+		color: new Color().setHex("#0080ff"),
+		cpu: true,
+		goalHoles: [],
+	},
+	{
+		id: "p2",
+		turnOrder: 6,
+		color: new Color().setHex("#ffff00"),
+		cpu: true,
+		goalHoles: [],
+	},
+	{
+		id: "p3",
+		turnOrder: 2,
+		color: new Color().setHex("#ff00ff"),
+		cpu: true,
+		goalHoles: [],
+	},
 	{
 		id: "bottom",
 		turnOrder: 1,
 		color: new Color().setHex("#ff0080"),
 		cpu: false,
+		goalHoles: [],
 	},
-	{ id: "p5", turnOrder: 3, color: new Color().setHex("#00ff88"), cpu: true },
-	{ id: "p6", turnOrder: 5, color: new Color().setHex("#8000ff"), cpu: true },
+	{
+		id: "p5",
+		turnOrder: 3,
+		color: new Color().setHex("#00ff88"),
+		cpu: true,
+		goalHoles: [],
+	},
+	{
+		id: "p6",
+		turnOrder: 5,
+		color: new Color().setHex("#8000ff"),
+		cpu: true,
+		goalHoles: [],
+	},
 ];
 
 hole = (q, r, marble) => {
@@ -100,6 +131,12 @@ neighbors = (board, hole, distance = 1) => {
 	);
 };
 
+holeDistance = (hole1, hole2) => {
+	const { q: q1, r: r1, s: s1 } = hole1.coords;
+	const { q: q2, r: r2, s: s2 } = hole2.coords;
+	return Math.max(Math.abs(q1 - q2), Math.abs(r1 - r2), Math.abs(s1 - s2));
+};
+
 nearestHole = (board, pos) =>
 	board.reduce((nearest, hole) =>
 		hole.pos.distance(pos) < nearest.pos.distance(pos) ? hole : nearest,
@@ -172,24 +209,61 @@ function boardInit(radius) {
 		}
 	}
 
-	return board
-		.filter((hole) => {
-			const { q, r, s } = hole.coords;
-			return (
-				(q + r <= 4 && q + s <= 4 && r + s <= 4) ||
-				(q + r >= -4 && q + s >= -4 && r + s >= -4)
-			);
-		})
-		.map((hole) => {
-			const { q, r, s } = hole.coords;
-			if (r > 4) return { ...hole, marble: marble("p1") };
-			if (q > 4) return { ...hole, marble: marble("p2") };
-			if (s > 4) return { ...hole, marble: marble("p3") };
-			if (r < -4) return { ...hole, marble: marble("bottom") };
-			if (q < -4) return { ...hole, marble: marble("p5") };
-			if (s < -4) return { ...hole, marble: marble("p6") };
-			return hole;
-		});
+	const filteredBoard = board.filter((hole) => {
+		const { q, r, s } = hole.coords;
+		return (
+			(q + r <= 4 && q + s <= 4 && r + s <= 4) ||
+			(q + r >= -4 && q + s >= -4 && r + s >= -4)
+		);
+	});
+
+	// Clear existing goal holes
+	PLAYERS.forEach((player) => {
+		player.goalHoles = [];
+	});
+
+	const boardWithMarbles = filteredBoard.map((hole) => {
+		const { q, r, s } = hole.coords;
+		if (r > 4) return { ...hole, marble: marble("p1") };
+		if (q > 4) return { ...hole, marble: marble("p2") };
+		if (s > 4) return { ...hole, marble: marble("p3") };
+		if (r < -4) return { ...hole, marble: marble("bottom") };
+		if (q < -4) return { ...hole, marble: marble("p5") };
+		if (s < -4) return { ...hole, marble: marble("p6") };
+		return hole;
+	});
+
+	// Assign goal holes (opposite side from starting position)
+	boardWithMarbles.forEach((hole) => {
+		const { q, r, s } = hole.coords;
+
+		// p1 starts at r > 4, goal is r < -4 (bottom player's start)
+		if (r < -4) {
+			PLAYERS.find((p) => p.id === "p1")?.goalHoles.push(hole);
+		}
+		// p2 starts at q > 4, goal is q < -4 (p5's start)
+		if (q < -4) {
+			PLAYERS.find((p) => p.id === "p2")?.goalHoles.push(hole);
+		}
+		// p3 starts at s > 4, goal is s < -4 (p6's start)
+		if (s < -4) {
+			PLAYERS.find((p) => p.id === "p3")?.goalHoles.push(hole);
+		}
+		// bottom starts at r < -4, goal is r > 4 (p1's start)
+		if (r > 4) {
+			PLAYERS.find((p) => p.id === "bottom")?.goalHoles.push(hole);
+		}
+		// p5 starts at q < -4, goal is q > 4 (p2's start)
+		if (q > 4) {
+			PLAYERS.find((p) => p.id === "p5")?.goalHoles.push(hole);
+		}
+		// p6 starts at s < -4, goal is s > 4 (p3's start)
+		if (s > 4) {
+			PLAYERS.find((p) => p.id === "p6")?.goalHoles.push(hole);
+		}
+	});
+
+	return boardWithMarbles;
 }
 
 function gameInit() {
