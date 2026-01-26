@@ -7,22 +7,25 @@ const SANDRED = new Color(0.78, 0.28, 0.03);
 const SANDLIGHTBROWN = new Color(0.97, 0.88, 0.63);
 
 const HOLECOLOR = new Color(0.97, 0.6, 0.22);
-const HOLESIZE = 1;
-const BOARDSIZE = 1.5;
+const HOLESIZE = 1.35;
+const BOARDSIZE = 1.45;
+const MARBLESIZE = HOLESIZE - 0.5;
 
+const CPU_MOVE_DELAY = 1;
 const MOVEGUIDES = true;
 
 const PLAYERS = [
+	{ id: "p1", turnOrder: 4, color: new Color().setHex("#0080ff"), cpu: true },
+	{ id: "p2", turnOrder: 6, color: new Color().setHex("#ffff00"), cpu: true },
+	{ id: "p3", turnOrder: 2, color: new Color().setHex("#ff00ff"), cpu: true },
 	{
-		id: "p4",
-		turnOrder: 4,
+		id: "bottom",
+		turnOrder: 1,
 		color: new Color().setHex("#ff0080"),
+		cpu: false,
 	},
-	{ id: "p5", turnOrder: 6, color: new Color().setHex("#00ff88") },
-	{ id: "p6", turnOrder: 2, color: new Color().setHex("#8000ff") },
-	{ id: "p1", turnOrder: 1, color: new Color().setHex("#0080ff") },
-	{ id: "p2", turnOrder: 3, color: new Color().setHex("#ffff00") },
-	{ id: "p3", turnOrder: 5, color: new Color().setHex("#ff00ff") },
+	{ id: "p5", turnOrder: 3, color: new Color().setHex("#00ff88"), cpu: true },
+	{ id: "p6", turnOrder: 5, color: new Color().setHex("#8000ff"), cpu: true },
 ];
 
 hole = (q, r, marble) => {
@@ -141,8 +144,20 @@ cpuMove = (board, player) => {
 	};
 };
 
-cpuPlay = () => {
-	board = cpuMove(board, currPlayer).newBoard;
+let cpuMoveTimer = 0;
+let cpuMoveAnimation = null;
+
+cpuPlay = (board, player) => {
+	const moveResult = cpuMove(board, player);
+	if (!moveResult) return;
+	cpuMoveAnimation = {
+		color: player.color,
+		from: moveResult.from,
+		to: moveResult.to,
+		progress: 0,
+	};
+	BUTTONCLICKSOUND.play();
+	return moveResult.newBoard;
 };
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -170,7 +185,7 @@ function boardInit(radius) {
 			if (r > 4) return { ...hole, marble: marble("p1") };
 			if (q > 4) return { ...hole, marble: marble("p2") };
 			if (s > 4) return { ...hole, marble: marble("p3") };
-			if (r < -4) return { ...hole, marble: marble("p4") };
+			if (r < -4) return { ...hole, marble: marble("bottom") };
 			if (q < -4) return { ...hole, marble: marble("p5") };
 			if (s < -4) return { ...hole, marble: marble("p6") };
 			return hole;
@@ -181,11 +196,36 @@ function gameInit() {
 	setCanvasFixedSize(vec2(720, 720));
 
 	board = boardInit(8);
-	currPlayer = PLAYERS[0];
+	currPlayer = PLAYERS.find((p) => p.turnOrder === 1);
 	currHeld = held();
+	cpuMoveTimer = 0;
+	cpuMoveAnimation = null;
 }
 
 function gameUpdate() {
+	if (cpuMoveAnimation) {
+		cpuMoveAnimation.progress += 0.1;
+		if (cpuMoveAnimation.progress >= 1) {
+			cpuMoveAnimation = null;
+		}
+		return;
+	}
+
+	const isCurrentPlayerCPU = currPlayer.cpu;
+
+	if (isCurrentPlayerCPU) {
+		if (cpuMoveTimer === 0) {
+			cpuMoveTimer = time + CPU_MOVE_DELAY;
+		} else if (time >= cpuMoveTimer) {
+			board = cpuPlay(board, currPlayer);
+			currPlayer = nextPlayer(currPlayer);
+			cpuMoveTimer = 0;
+		}
+		return;
+	}
+
+	cpuMoveTimer = 0;
+
 	if (mouseWasPressed(0)) {
 		let mouseHole = nearestHole(board, mousePos);
 		if (mouseHole.marble.player === currPlayer.id)
@@ -196,7 +236,8 @@ function gameUpdate() {
 		let mouseHole = nearestHole(board, mousePos);
 
 		if (!currHeld.moves(board).find((h) => h === mouseHole)) {
-			alert("Move not valid");
+			// alert("Move not valid");
+			console.log("Move not valid");
 		} else if (
 			mouseHole !== held.hole &&
 			mouseHole.marble.color === empty().color
@@ -206,6 +247,7 @@ function gameUpdate() {
 				currHeld.hole,
 				empty(),
 			);
+			BUTTONCLICKSOUND.play();
 			currPlayer = nextPlayer(currPlayer);
 		}
 
@@ -218,11 +260,21 @@ function gameRender() {
 	drawCircle(vec2(), BOARDSIZE * 15.5, currPlayer.color);
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
 
-	drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
+	// drawText(
+	// 	`Current Player: ${currPlayer.id} ${currPlayer.cpu ? "(CPU)" : "(Human)"}`,
+	// 	vec2(-6, 8),
+	// 	0.8,
+	// 	BLACK,
+	// 	0,
+	// 	BLACK,
+	// );
 
-	// drawText("Current Player: ", vec2(-6, 8), 1, BLACK, 0, BLACK);
+	const isHumanPlayer = !currPlayer.cpu;
+	if (isHumanPlayer) {
+		drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
+	}
 
-	if (MOVEGUIDES) {
+	if (MOVEGUIDES && isHumanPlayer) {
 		for (const hole of currHeld.moves(board)) {
 			drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
 		}
@@ -230,14 +282,23 @@ function gameRender() {
 
 	for (const hole of board) {
 		drawCircle(hole.pos, HOLESIZE, HOLECOLOR);
-		drawCircle(hole.pos, HOLESIZE - 0.25, hole.marble?.color);
+		drawCircle(hole.pos, MARBLESIZE, hole.marble?.color);
 	}
 
-	if (currHeld.hole) {
+	if (currHeld.hole && isHumanPlayer) {
 		drawCircle(currHeld.hole.pos, HOLESIZE + 0.25, BLACK);
 		drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
 	}
-	if (currHeld.marble.color !== empty().color)
+
+	if (cpuMoveAnimation) {
+		const animPos = cpuMoveAnimation.from.pos.lerp(
+			cpuMoveAnimation.to.pos,
+			Math.min(cpuMoveAnimation.progress, 1),
+		);
+		drawCircle(animPos, HOLESIZE + 0.25, cpuMoveAnimation.color);
+	}
+
+	if (currHeld.marble.color !== empty().color && isHumanPlayer)
 		drawCircle(mousePos, HOLESIZE + 0.25, currHeld.marble.color);
 }
 function postGameRender() {}

@@ -15,18 +15,25 @@ const SANDRED = new Color(0.78, 0.28, 0.03);
 const SANDLIGHTBROWN = new Color(0.97, 0.88, 0.63);
 
 const HOLECOLOR = new Color(0.97, 0.6, 0.22);
-const HOLESIZE = 1;
-const BOARDSIZE = 1.5;
+const HOLESIZE = 1.35;
+const BOARDSIZE = 1.45;
+const MARBLESIZE = HOLESIZE - 0.5;
 
+const CPU_MOVE_DELAY = 1;
 const MOVEGUIDES = true;
 
 const PLAYERS = [
-	{ id: "p4", turnOrder: 4, color: new Color().setHex("#ff0080"), isComputer: true },
-	{ id: "p5", turnOrder: 6, color: new Color().setHex("#00ff88"), isComputer: false },
-	{ id: "p6", turnOrder: 2, color: new Color().setHex("#8000ff"), isComputer: false },
-	{ id: "p1", turnOrder: 1, color: new Color().setHex("#0080ff"), isComputer: false },
-	{ id: "p2", turnOrder: 3, color: new Color().setHex("#ffff00"), isComputer: false },
-	{ id: "p3", turnOrder: 5, color: new Color().setHex("#ff00ff"), isComputer: false },
+	{ id: "p1", turnOrder: 4, color: new Color().setHex("#0080ff"), cpu: true },
+	{ id: "p2", turnOrder: 6, color: new Color().setHex("#ffff00"), cpu: true },
+	{ id: "p3", turnOrder: 2, color: new Color().setHex("#ff00ff"), cpu: true },
+	{
+		id: "bottom",
+		turnOrder: 1,
+		color: new Color().setHex("#ff0080"),
+		cpu: false,
+	},
+	{ id: "p5", turnOrder: 3, color: new Color().setHex("#00ff88"), cpu: true },
+	{ id: "p6", turnOrder: 5, color: new Color().setHex("#8000ff"), cpu: true },
 ];
 
 hole = (q, r, marble) => {
@@ -119,41 +126,46 @@ nextPlayer = (player) => {
 	return PLAYERS.find((p) => p.turnOrder === nextTurnOrder);
 };
 
-getAIMove = (player, board) => {
-	const playerMarbles = board.filter(hole => hole.marble?.player === player.id);
-	const allPossibleMoves = [];
+cpuMove = (board, player) => {
+	const playerMarbles = board.filter((h) => h.marble.player === player.id);
+	const validMovesList = [];
 
 	for (const marbleHole of playerMarbles) {
-		const heldState = held(marbleHole.marble, marbleHole);
-		const validMovesList = validMoves(heldState, board);
-		
-		for (const moveHole of validMovesList) {
-			allPossibleMoves.push({
-				from: marbleHole,
-				to: moveHole,
-				moves: validMovesList.length
-			});
+		const moves = validMoves(board, marbleHole, marbleHole.marble);
+		for (const targetHole of moves) {
+			validMovesList.push({ from: marbleHole, to: targetHole });
 		}
 	}
 
-	if (allPossibleMoves.length === 0) return null;
+	if (validMovesList.length === 0) return null;
 
-	const weightedMoves = allPossibleMoves.map(move => {
-		let score = Math.random() * 10;
+	const randomMove =
+		validMovesList[Math.floor(Math.random() * validMovesList.length)];
+	return {
+		newBoard: placeMarble(
+			placeMarble(board, randomMove.to, randomMove.from.marble),
+			randomMove.from,
+			empty(),
+		),
+		from: randomMove.from,
+		to: randomMove.to,
+	};
+};
 
-		const distance = Math.abs(move.to.coords.q - move.from.coords.q) + 
-			Math.abs(move.to.coords.r - move.from.coords.r);
-		score += distance * 5;
+let cpuMoveTimer = 0;
+let cpuMoveAnimation = null;
 
-		if (move.moves > 2) {
-			score += move.moves * 3;
-		}
-
-		return { ...move, score };
-	});
-
-	weightedMoves.sort((a, b) => b.score - a.score);
-	return weightedMoves[0];
+cpuPlay = (board, player) => {
+	const moveResult = cpuMove(board, player);
+	if (!moveResult) return;
+	cpuMoveAnimation = {
+		color: player.color,
+		from: moveResult.from,
+		to: moveResult.to,
+		progress: 0,
+	};
+	BUTTONCLICKSOUND.play();
+	return moveResult.newBoard;
 };
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -181,7 +193,7 @@ function boardInit(radius) {
 			if (r > 4) return { ...hole, marble: marble("p1") };
 			if (q > 4) return { ...hole, marble: marble("p2") };
 			if (s > 4) return { ...hole, marble: marble("p3") };
-			if (r < -4) return { ...hole, marble: marble("p4") };
+			if (r < -4) return { ...hole, marble: marble("bottom") };
 			if (q < -4) return { ...hole, marble: marble("p5") };
 			if (s < -4) return { ...hole, marble: marble("p6") };
 			return hole;
@@ -192,68 +204,62 @@ function gameInit() {
 	setCanvasFixedSize(vec2(720, 720));
 
 	board = boardInit(8);
-	currPlayer = PLAYERS[0];
+	currPlayer = PLAYERS.find((p) => p.turnOrder === 1);
 	currHeld = held();
-	aiMoveTimer = null;
-	aiSelectedMove = null;
+	cpuMoveTimer = 0;
+	cpuMoveAnimation = null;
 }
 
 function gameUpdate() {
-	if (currPlayer.isComputer) {
-		if (!aiMoveTimer) {
-			aiMoveTimer = 60;
-			const aiMove = getAIMove(currPlayer, board);
-			if (aiMove) {
-				aiSelectedMove = aiMove;
-			}
+	if (cpuMoveAnimation) {
+		cpuMoveAnimation.progress += 0.1;
+		if (cpuMoveAnimation.progress >= 1) {
+			cpuMoveAnimation = null;
 		}
-		
-		aiMoveTimer--;
-		
-		if (aiMoveTimer === 30 && aiSelectedMove) {
-			const heldState = held(aiSelectedMove.from, aiSelectedMove.from.marble);
-			currHeld = heldState;
-		}
-		
-		if (aiMoveTimer === 0 && aiSelectedMove) {
-			if (currHeld.hole) {
-				board = placeMarble(
-					placeMarble(board, aiSelectedMove.to, currHeld.marble),
-					currHeld.hole,
-					empty(),
-				);
-				currPlayer = nextPlayer(currPlayer);
-			}
-			currHeld = held();
-			aiMoveTimer = null;
-			aiSelectedMove = null;
-		}
-	} else {
-		if (mouseWasPressed(0)) {
-			let mouseHole = nearestHole(board, mousePos);
-			if (mouseHole.marble.player === currPlayer.id)
-				currHeld = held(mouseHole, mouseHole.marble);
-		}
-		if (mouseWasReleased(0)) {
-			if (!currHeld.hole) return;
-			let mouseHole = nearestHole(board, mousePos);
+		return;
+	}
 
-			if (!currHeld.moves(board).find((h) => h === mouseHole)) {
-				alert("Move not valid");
-			} else if (
-				mouseHole !== held.hole &&
-				mouseHole.marble.color === empty().color
-			) {
-				board = placeMarble(
-					placeMarble(board, mouseHole, currHeld.marble),
-					currHeld.hole,
-					empty(),
-				);
-				currPlayer = nextPlayer(currPlayer);
-			}
+	const isCurrentPlayerCPU = currPlayer.cpu;
 
-			currHeld = held();
+	if (isCurrentPlayerCPU) {
+		if (cpuMoveTimer === 0) {
+			cpuMoveTimer = time + CPU_MOVE_DELAY;
+		} else if (time >= cpuMoveTimer) {
+			board = cpuPlay(board, currPlayer);
+			currPlayer = nextPlayer(currPlayer);
+			cpuMoveTimer = 0;
 		}
+		return;
+	}
+
+	cpuMoveTimer = 0;
+
+	if (mouseWasPressed(0)) {
+		let mouseHole = nearestHole(board, mousePos);
+		if (mouseHole.marble.player === currPlayer.id)
+			currHeld = held(mouseHole, mouseHole.marble);
+	}
+	if (mouseWasReleased(0)) {
+		if (!currHeld.hole) return;
+		let mouseHole = nearestHole(board, mousePos);
+
+		if (!currHeld.moves(board).find((h) => h === mouseHole)) {
+			// alert("Move not valid");
+			console.log("Move not valid");
+		} else if (
+			mouseHole !== held.hole &&
+			mouseHole.marble.color === empty().color
+		) {
+			board = placeMarble(
+				placeMarble(board, mouseHole, currHeld.marble),
+				currHeld.hole,
+				empty(),
+			);
+			BUTTONCLICKSOUND.play();
+			currPlayer = nextPlayer(currPlayer);
+		}
+
+		currHeld = held();
 	}
 }
 
@@ -262,34 +268,45 @@ function gameRender() {
 	drawCircle(vec2(), BOARDSIZE * 15.5, currPlayer.color);
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
 
-	drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
+	// drawText(
+	// 	`Current Player: ${currPlayer.id} ${currPlayer.cpu ? "(CPU)" : "(Human)"}`,
+	// 	vec2(-6, 8),
+	// 	0.8,
+	// 	BLACK,
+	// 	0,
+	// 	BLACK,
+	// );
 
-	// drawText("Current Player: ", vec2(-6, 8), 1, BLACK, 0, BLACK);
+	const isHumanPlayer = !currPlayer.cpu;
+	if (isHumanPlayer) {
+		drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
+	}
 
-	if (MOVEGUIDES) {
+	if (MOVEGUIDES && isHumanPlayer) {
 		for (const hole of currHeld.moves(board)) {
 			drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
 		}
 	}
 
-	if (currPlayer.isComputer && aiSelectedMove) {
-		if (aiMoveTimer > 30) {
-			drawCircle(aiSelectedMove.from.pos, HOLESIZE + 0.35, WHITE);
-		} else if (aiMoveTimer > 0) {
-			drawCircle(aiSelectedMove.to.pos, HOLESIZE + 0.35, WHITE);
-		}
-	}
-
 	for (const hole of board) {
 		drawCircle(hole.pos, HOLESIZE, HOLECOLOR);
-		drawCircle(hole.pos, HOLESIZE - 0.25, hole.marble?.color);
+		drawCircle(hole.pos, MARBLESIZE, hole.marble?.color);
 	}
 
-	if (currHeld.hole) {
+	if (currHeld.hole && isHumanPlayer) {
 		drawCircle(currHeld.hole.pos, HOLESIZE + 0.25, BLACK);
 		drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
 	}
-	if (currHeld.marble.color !== empty().color)
+
+	if (cpuMoveAnimation) {
+		const animPos = cpuMoveAnimation.from.pos.lerp(
+			cpuMoveAnimation.to.pos,
+			Math.min(cpuMoveAnimation.progress, 1),
+		);
+		drawCircle(animPos, HOLESIZE + 0.25, cpuMoveAnimation.color);
+	}
+
+	if (currHeld.marble.color !== empty().color && isHumanPlayer)
 		drawCircle(mousePos, HOLESIZE + 0.25, currHeld.marble.color);
 }
 function postGameRender() {}
