@@ -13,6 +13,7 @@ const MARBLESIZE = HOLESIZE - 0.5;
 
 const CPU_MOVE_DELAY = 1;
 const MOVEGUIDES = true;
+const GOALGUIDE = true;
 
 const PLAYERS = [
 	{
@@ -355,6 +356,10 @@ function gameRender() {
 	}
 
 	for (const hole of board) {
+		// Highlight current player's goal holes
+		if (GOALGUIDE && currPlayer.goalHoles.includes(hole)) {
+			drawCircle(hole.pos, HOLESIZE + 0.15, currPlayer.color);
+		}
 		drawCircle(hole.pos, HOLESIZE, HOLECOLOR);
 		drawCircle(hole.pos, MARBLESIZE, hole.marble?.color);
 	}
