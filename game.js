@@ -15,6 +15,12 @@ const CPU_MOVE_DELAY = 1;
 const MOVEGUIDES = true;
 const GOALGUIDE = true;
 
+// Animation speed controls (constant duration regardless of path length)
+const ANIMATION_SPEED = {
+	CPU_DURATION: 25, // Constant frames for CPU animation
+	HUMAN_DURATION: 18, // Constant frames for human animation
+};
+
 const PLAYERS = [
 	{
 		id: "p1",
@@ -106,56 +112,52 @@ hoppingMoves = (board, currentHole, visited = new Set()) => {
 		.flatMap((target) => [target, ...hoppingMoves(board, target, newVisited)]);
 };
 
+// Get hopping targets from a position
+getHoppingTargets = (board, current) =>
+	neighbors(board, current)
+		.filter((adj) => adj.marble.color !== HOLECOLOR)
+		.map((adj) => {
+			const dir = {
+				q: adj.coords.q - current.coords.q,
+				r: adj.coords.r - current.coords.r,
+			};
+			return board.find(
+				(h) =>
+					h.coords.q === current.coords.q + dir.q * 2 &&
+					h.coords.r === current.coords.r + dir.r * 2 &&
+					h.marble.color === HOLECOLOR,
+			);
+		})
+		.filter(Boolean);
+
+// Find path recursively using functional approach
+findHoppingPath = (board, current, target, visited = new Set()) => {
+	const key = `${current.coords.q},${current.coords.r}`;
+	if (visited.has(key) || current === target)
+		return current === target ? [current] : null;
+
+	const newVisited = new Set(visited).add(key);
+	const targets = getHoppingTargets(board, current);
+
+	const pathResult = targets
+		.map((hop) => findHoppingPath(board, hop, target, newVisited))
+		.find((result) => result !== null);
+
+	return pathResult ? [current, ...pathResult] : null;
+};
+
 // Calculate the complete path including intermediate hop positions
 calculateMovePath = (board, from, to) => {
-	// Handle edge cases
 	if (!from || !to || from === to) return [from];
-
-	const path = [from];
 
 	// Simple adjacent move
 	if (neighbors(board, from).includes(to)) {
-		path.push(to);
-		return path;
+		return [from, to];
 	}
 
 	// Find hopping path
-	const findPath = (current, target, visited = new Set()) => {
-		const key = `${current.coords.q},${current.coords.r}`;
-		if (visited.has(key)) return null;
-		if (current === target) return [current];
-
-		const newVisited = new Set(visited).add(key);
-
-		// Check hopping moves from current position
-		const hops = neighbors(board, current)
-			.filter((adj) => adj.marble.color !== HOLECOLOR)
-			.map((adj) => {
-				const dir = {
-					q: adj.coords.q - current.coords.q,
-					r: adj.coords.r - current.coords.r,
-				};
-				return board.find(
-					(h) =>
-						h.coords.q === current.coords.q + dir.q * 2 &&
-						h.coords.r === current.coords.r + dir.r * 2 &&
-						h.marble.color === HOLECOLOR,
-				);
-			})
-			.filter(Boolean);
-
-		for (const hop of hops) {
-			const result = findPath(hop, target, newVisited);
-			if (result) {
-				return [current, ...result];
-			}
-		}
-
-		return null;
-	};
-
-	const fullPath = findPath(from, to);
-	return fullPath || path;
+	const hoppingPath = findHoppingPath(board, from, to);
+	return hoppingPath || [from, to];
 };
 
 validMoves = (board, hole, marble) =>
@@ -237,6 +239,7 @@ cpuMove = (board, player) => {
 let cpuMoveTimer = 0;
 let cpuMoveAnimation = null;
 let humanMoveAnimation = null;
+let pendingMove = null; // Stores move data to execute after animation
 
 // Easing functions for smooth animation
 const easing = {
@@ -246,53 +249,84 @@ const easing = {
 	linear: (t) => t,
 };
 
-// Animation system for marble movement
-class MoveAnimation {
-	constructor(color, path, duration = 30, easingType = "easeInOut") {
-		this.color = color;
-		this.path = path;
-		this.duration = duration;
-		this.progress = 0;
-		this.easing = easing[easingType] || easing.linear;
+// Create animation object with functional approach
+createMoveAnimation = (
+	color,
+	path,
+	duration = 30,
+	easingType = "easeInOut",
+) => ({
+	color,
+	path,
+	duration,
+	progress: 0,
+	easing: easing[easingType] || easing.linear,
+});
+
+// Update animation progress - returns true if complete
+updateAnimation = (animation) => {
+	animation.progress += 1 / animation.duration;
+	return animation.progress >= 1;
+};
+
+// Get current position during animation (speeds up between holes)
+getAnimationPosition = (animation) => {
+	const totalSegments = animation.path.length - 1;
+	const totalProgress = Math.min(animation.progress, 1);
+
+	// Time allocation: 20% for pauses at holes, 80% for movement between holes
+	const pauseTimeRatio = 0.2;
+	const movementTimeRatio = 0.8;
+
+	// Calculate which segment we're in and progress within that segment
+	const segmentWithPause = totalProgress * totalSegments;
+	const currentSegment = Math.floor(segmentWithPause);
+	const segmentProgress = segmentWithPause - currentSegment;
+
+	// If we're at or beyond the last segment, return final position
+	if (currentSegment >= totalSegments) {
+		return animation.path[animation.path.length - 1].pos;
 	}
 
-	update() {
-		this.progress += 1 / this.duration;
-		return this.progress >= 1;
+	// Split time: first pause at current hole, then move to next hole
+	const pauseDuration = pauseTimeRatio;
+	const moveDuration = movementTimeRatio;
+
+	if (segmentProgress < pauseDuration) {
+		// Pausing at current hole
+		return animation.path[currentSegment].pos;
+	} else {
+		// Moving to next hole
+		const moveProgress = (segmentProgress - pauseDuration) / moveDuration;
+		const from = animation.path[currentSegment].pos;
+		const to = animation.path[currentSegment + 1].pos;
+		return from.lerp(to, moveProgress);
 	}
-
-	getCurrentPosition() {
-		const totalSegments = this.path.length - 1;
-		const scaledProgress = this.easing(Math.min(this.progress, 1));
-		const currentSegmentFloat = scaledProgress * totalSegments;
-		const currentSegment = Math.floor(currentSegmentFloat);
-		const segmentProgress = currentSegmentFloat - currentSegment;
-
-		if (currentSegment >= totalSegments) {
-			return this.path[this.path.length - 1].pos;
-		}
-
-		const from = this.path[currentSegment].pos;
-		const to = this.path[currentSegment + 1].pos;
-
-		return from.lerp(to, segmentProgress);
-	}
-}
+};
 
 cpuPlay = (board, player) => {
 	const moveResult = cpuMove(board, player);
 	if (!moveResult) return;
 
 	const path = calculateMovePath(board, moveResult.from, moveResult.to);
-	const duration = Math.max(15, Math.min(35, path.length * 8)); // Scale duration with path length
-	cpuMoveAnimation = new MoveAnimation(
+	const duration = ANIMATION_SPEED.CPU_DURATION;
+	cpuMoveAnimation = createMoveAnimation(
 		player.color,
 		path,
 		duration,
 		"easeInOut",
 	);
+
+	// Store move data to execute after animation
+	pendingMove = {
+		from: moveResult.from,
+		to: moveResult.to,
+		marble: moveResult.from.marble,
+		newBoard: moveResult.newBoard,
+	};
+
 	BUTTONCLICKSOUND.play();
-	return moveResult.newBoard;
+	return board; // Return original board until animation completes
 };
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -373,23 +407,29 @@ function gameInit() {
 	cpuMoveTimer = 0;
 	cpuMoveAnimation = null;
 	humanMoveAnimation = null;
+	pendingMove = null;
 }
 
 function gameUpdate() {
-	if (cpuMoveAnimation) {
-		const isComplete = cpuMoveAnimation.update();
-		if (isComplete) {
-			cpuMoveAnimation = null;
+	const animationComplete = (animation) => {
+		if (animation && updateAnimation(animation)) {
+			if (pendingMove) {
+				board = pendingMove.newBoard;
+				currPlayer = nextPlayer(currPlayer);
+				pendingMove = null;
+			}
+			return true;
 		}
+		return false;
+	};
+
+	if (cpuMoveAnimation && animationComplete(cpuMoveAnimation)) {
+		cpuMoveAnimation = null;
 		return;
 	}
 
-	if (humanMoveAnimation) {
-		const isComplete = humanMoveAnimation.update();
-		if (isComplete) {
-			humanMoveAnimation = null;
-			currPlayer = nextPlayer(currPlayer);
-		}
+	if (humanMoveAnimation && animationComplete(humanMoveAnimation)) {
+		humanMoveAnimation = null;
 		return;
 	}
 
@@ -400,7 +440,6 @@ function gameUpdate() {
 			cpuMoveTimer = time + CPU_MOVE_DELAY;
 		} else if (time >= cpuMoveTimer) {
 			board = cpuPlay(board, currPlayer);
-			currPlayer = nextPlayer(currPlayer);
 			cpuMoveTimer = 0;
 		}
 		return;
@@ -426,20 +465,28 @@ function gameUpdate() {
 		) {
 			// Create animation for human move
 			const path = calculateMovePath(board, currHeld.hole, mouseHole);
-			const duration = Math.max(12, Math.min(25, path.length * 6)); // Faster for human moves
-			humanMoveAnimation = new MoveAnimation(
+			const duration = ANIMATION_SPEED.HUMAN_DURATION;
+			humanMoveAnimation = createMoveAnimation(
 				currHeld.marble.color,
 				path,
 				duration,
 				"easeInOut",
 			);
 
-			// Update board state immediately (animation is visual only)
-			board = placeMarble(
+			// Store move data to execute after animation
+			const newBoard = placeMarble(
 				placeMarble(board, mouseHole, currHeld.marble),
 				currHeld.hole,
 				empty(),
 			);
+
+			pendingMove = {
+				from: currHeld.hole,
+				to: mouseHole,
+				marble: currHeld.marble,
+				newBoard: newBoard,
+			};
+
 			BUTTONCLICKSOUND.play();
 		}
 
@@ -451,15 +498,6 @@ function gameRender() {
 	drawRect(vec2(), vec2(32), SANDLIGHTBROWN);
 	drawCircle(vec2(), BOARDSIZE * 15.5, currPlayer.color);
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
-
-	// drawText(
-	// 	`Current Player: ${currPlayer.id} ${currPlayer.cpu ? "(CPU)" : "(Human)"}`,
-	// 	vec2(-6, 8),
-	// 	0.8,
-	// 	BLACK,
-	// 	0,
-	// 	BLACK,
-	// );
 
 	const isHumanPlayer = !currPlayer.cpu;
 	if (isHumanPlayer) {
@@ -487,12 +525,12 @@ function gameRender() {
 	}
 
 	if (cpuMoveAnimation) {
-		const animPos = cpuMoveAnimation.getCurrentPosition();
+		const animPos = getAnimationPosition(cpuMoveAnimation);
 		drawCircle(animPos, HOLESIZE + 0.25, cpuMoveAnimation.color);
 	}
 
 	if (humanMoveAnimation) {
-		const animPos = humanMoveAnimation.getCurrentPosition();
+		const animPos = getAnimationPosition(humanMoveAnimation);
 		drawCircle(animPos, HOLESIZE + 0.25, humanMoveAnimation.color);
 	}
 
