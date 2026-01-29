@@ -9,16 +9,16 @@ const SANDLIGHTBROWN = new Color(0.97, 0.88, 0.63);
 const HOLECOLOR = new Color(0.97, 0.6, 0.22);
 const HOLESIZE = 1.35;
 const BOARDSIZE = 1.45;
-const MARBLESIZE = HOLESIZE - 0.5;
+const MARBLESIZE = HOLESIZE - 0.25;
 
 const CPU_MOVE_DELAY = 1;
 const MOVEGUIDES = true;
-const GOALGUIDE = true;
+const GOALGUIDE = false;
 
 // animation speed controls (constant duration regardless of path length)
 const ANIMATION_SPEED = {
-	CPU_DURATION: 25, // constant frames for cpu animation
-	HUMAN_DURATION: 18, // constant frames for human animation
+	CPU_DURATION: 7,
+	HUMAN_DURATION: 14,
 };
 
 const PLAYERS = [
@@ -30,7 +30,7 @@ const PLAYERS = [
 		goalHoles: [],
 	},
 	{
-		position: "topRight",
+		position: "bottomRight",
 		turnOrder: 6,
 		color: new Color().setHex("#ffff00"),
 		cpu: true,
@@ -58,9 +58,9 @@ const PLAYERS = [
 		goalHoles: [],
 	},
 	{
-		position: "bottomRight",
+		position: "topRight",
 		turnOrder: 5,
-		color: new Color().setHex("#8000ff"),
+		color: new Color().setHex("#ff0008"),
 		cpu: true,
 		goalHoles: [],
 	},
@@ -208,7 +208,32 @@ placeMarble = (board, hole, marble) =>
 			: h,
 	);
 
-nextPlayer = (player) => {
+checkWinner = (board) => {
+	for (const player of PLAYERS) {
+		if (player.goalHoles.length === 0) continue;
+
+		const goalHolesFilled = player.goalHoles.every((goalHole) => {
+			// find the corresponding hole
+			const currentHole = board.find(
+				(h) =>
+					h.coords.q === goalHole.coords.q && h.coords.r === goalHole.coords.r,
+			);
+			return currentHole && currentHole.marble.player === player.position;
+		});
+
+		if (goalHolesFilled) {
+			return player;
+		}
+	}
+	return null;
+};
+
+nextPlayer = (player, board) => {
+	const winner = checkWinner(board);
+	if (winner) {
+		paused = true;
+		alert("WINNER: " + winner.position);
+	}
 	const nextTurnOrder =
 		player.turnOrder === PLAYERS.length ? 1 : player.turnOrder + 1;
 	return PLAYERS.find((p) => p.turnOrder === nextTurnOrder);
@@ -311,8 +336,11 @@ cpuPlay = (board, player) => {
 	if (!moveResult) return;
 
 	const path = calculateMovePath(board, moveResult.from, moveResult.to);
-	const duration = ANIMATION_SPEED.CPU_DURATION;
-	cpuMoveAnimation = createMoveAnimation(player.color, path, duration);
+	cpuMoveAnimation = createMoveAnimation(
+		player.color,
+		path,
+		ANIMATION_SPEED.CPU_DURATION * path.length,
+	);
 
 	// store move data to execute after animation
 	pendingMove = {
@@ -355,11 +383,11 @@ function boardInit(radius) {
 	const boardWithMarbles = filteredBoard.map((hole) => {
 		const { q, r, s } = hole.coords;
 		if (r > 4) return { ...hole, marble: marble("top") };
-		if (q > 4) return { ...hole, marble: marble("topRight") };
+		if (q > 4) return { ...hole, marble: marble("bottomRight") };
 		if (s > 4) return { ...hole, marble: marble("bottomLeft") };
 		if (r < -4) return { ...hole, marble: marble("bottom") };
 		if (q < -4) return { ...hole, marble: marble("topLeft") };
-		if (s < -4) return { ...hole, marble: marble("bottomRight") };
+		if (s < -4) return { ...hole, marble: marble("topRight") };
 		return hole;
 	});
 
@@ -368,7 +396,7 @@ function boardInit(radius) {
 		const { q, r, s } = hole.coords;
 		if (r < -4) PLAYERS.find((p) => p.position === "top")?.goalHoles.push(hole);
 		if (q < -4)
-			PLAYERS.find((p) => p.position === "topRight")?.goalHoles.push(hole);
+			PLAYERS.find((p) => p.position === "bottomRight")?.goalHoles.push(hole);
 		if (s < -4)
 			PLAYERS.find((p) => p.position === "bottomLeft")?.goalHoles.push(hole);
 		if (r > 4)
@@ -376,7 +404,7 @@ function boardInit(radius) {
 		if (q > 4)
 			PLAYERS.find((p) => p.position === "topLeft")?.goalHoles.push(hole);
 		if (s > 4)
-			PLAYERS.find((p) => p.position === "bottomRight")?.goalHoles.push(hole);
+			PLAYERS.find((p) => p.position === "topRight")?.goalHoles.push(hole);
 	});
 
 	return boardWithMarbles;
@@ -401,7 +429,7 @@ function gameUpdate() {
 		if (animation && updateAnimation(animation)) {
 			if (pendingMove) {
 				board = pendingMove.newBoard;
-				currPlayer = nextPlayer(currPlayer);
+				currPlayer = nextPlayer(currPlayer, board);
 				pendingMove = null;
 			}
 			return true;
@@ -443,18 +471,16 @@ function gameUpdate() {
 		if (!currHeld.hole) return;
 		mouseHole = nearestHole(board, mousePos);
 
-		const isValidMove =
+		if (
 			currHeld.moves(board).find((h) => h === mouseHole) &&
 			mouseHole !== currHeld.hole &&
-			mouseHole.marble.color === empty().color;
-
-		if (isValidMove) {
+			mouseHole.marble.color === empty().color
+		) {
 			const path = calculateMovePath(board, currHeld.hole, mouseHole);
-			const duration = ANIMATION_SPEED.HUMAN_DURATION;
 			humanMoveAnimation = createMoveAnimation(
 				currHeld.marble.color,
 				path,
-				duration,
+				ANIMATION_SPEED.HUMAN_DURATION * path.length,
 			);
 
 			const newBoard = placeMarble(
