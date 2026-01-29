@@ -15,50 +15,50 @@ const CPU_MOVE_DELAY = 1;
 const MOVEGUIDES = true;
 const GOALGUIDE = true;
 
-// Animation speed controls (constant duration regardless of path length)
+// animation speed controls (constant duration regardless of path length)
 const ANIMATION_SPEED = {
-	CPU_DURATION: 25, // Constant frames for CPU animation
-	HUMAN_DURATION: 18, // Constant frames for human animation
+	CPU_DURATION: 25, // constant frames for cpu animation
+	HUMAN_DURATION: 18, // constant frames for human animation
 };
 
 const PLAYERS = [
 	{
-		id: "p1",
+		position: "top",
 		turnOrder: 4,
 		color: new Color().setHex("#0080ff"),
 		cpu: true,
 		goalHoles: [],
 	},
 	{
-		id: "p2",
+		position: "topRight",
 		turnOrder: 6,
 		color: new Color().setHex("#ffff00"),
 		cpu: true,
 		goalHoles: [],
 	},
 	{
-		id: "p3",
+		position: "bottomLeft",
 		turnOrder: 2,
 		color: new Color().setHex("#ff00ff"),
 		cpu: true,
 		goalHoles: [],
 	},
 	{
-		id: "bottom",
+		position: "bottom",
 		turnOrder: 1,
 		color: new Color().setHex("#ff0080"),
 		cpu: false,
 		goalHoles: [],
 	},
 	{
-		id: "p5",
+		position: "topLeft",
 		turnOrder: 3,
 		color: new Color().setHex("#00ff88"),
 		cpu: true,
 		goalHoles: [],
 	},
 	{
-		id: "p6",
+		position: "bottomRight",
 		turnOrder: 5,
 		color: new Color().setHex("#8000ff"),
 		cpu: true,
@@ -66,6 +66,7 @@ const PLAYERS = [
 	},
 ];
 
+// creates a hexagonal hole with coordinates and marble
 hole = (q, r, marble) => {
 	const x = (q + r * 0.5) * BOARDSIZE;
 	const y = ((r * Math.sqrt(3)) / 2) * BOARDSIZE;
@@ -77,15 +78,18 @@ hole = (q, r, marble) => {
 };
 marble = (player) => ({
 	player,
-	color: PLAYERS.find((p) => p.id === player)?.color || HOLECOLOR,
+	color: PLAYERS.find((p) => p.position === player)?.color || HOLECOLOR,
 });
+// creates an empty marble
 empty = () => ({ color: HOLECOLOR });
+// creates a held marble state
 held = (hole = null, marble = empty()) => ({
 	hole,
 	marble,
 	moves: (board) => validMoves(board, hole, marble),
 });
 
+// calculates all possible hopping moves from current position
 hoppingMoves = (board, currentHole, visited = new Set()) => {
 	const key = `${currentHole.coords.q},${currentHole.coords.r}`;
 	if (visited.has(key)) return [];
@@ -112,7 +116,7 @@ hoppingMoves = (board, currentHole, visited = new Set()) => {
 		.flatMap((target) => [target, ...hoppingMoves(board, target, newVisited)]);
 };
 
-// Get hopping targets from a position
+// get hopping targets from a position
 getHoppingTargets = (board, current) =>
 	neighbors(board, current)
 		.filter((adj) => adj.marble.color !== HOLECOLOR)
@@ -130,7 +134,7 @@ getHoppingTargets = (board, current) =>
 		})
 		.filter(Boolean);
 
-// Find path recursively using functional approach
+// find path recursively using functional approach
 findHoppingPath = (board, current, target, visited = new Set()) => {
 	const key = `${current.coords.q},${current.coords.r}`;
 	if (visited.has(key) || current === target)
@@ -146,16 +150,16 @@ findHoppingPath = (board, current, target, visited = new Set()) => {
 	return pathResult ? [current, ...pathResult] : null;
 };
 
-// Calculate the complete path including intermediate hop positions
+// calculate the complete path including intermediate hop positions
 calculateMovePath = (board, from, to) => {
 	if (!from || !to || from === to) return [from];
 
-	// Simple adjacent move
+	// simple adjacent move
 	if (neighbors(board, from).includes(to)) {
 		return [from, to];
 	}
 
-	// Find hopping path
+	// find hopping path
 	const hoppingPath = findHoppingPath(board, from, to);
 	return hoppingPath || [from, to];
 };
@@ -211,7 +215,9 @@ nextPlayer = (player) => {
 };
 
 cpuMove = (board, player) => {
-	const playerMarbles = board.filter((h) => h.marble.player === player.id);
+	const playerMarbles = board.filter(
+		(h) => h.marble.player === player.position,
+	);
 	const validMovesList = [];
 
 	for (const marbleHole of playerMarbles) {
@@ -239,69 +245,41 @@ cpuMove = (board, player) => {
 let cpuMoveTimer = 0;
 let cpuMoveAnimation = null;
 let humanMoveAnimation = null;
-let pendingMove = null; // Stores move data to execute after animation
+let pendingMove = null; // stores move data to execute after animation
 
-// Easing functions for smooth animation
-const easing = {
-	easeInOut: (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
-	easeOut: (t) => t * (2 - t),
-	easeIn: (t) => t * t,
-	linear: (t) => t,
-};
-
-// Create animation object with functional approach
-createMoveAnimation = (
-	color,
-	path,
-	duration = 30,
-	easingType = "easeInOut",
-) => ({
+// create animation object with functional approach
+createMoveAnimation = (color, path, duration = 30) => ({
 	color,
 	path,
 	duration,
 	progress: 0,
-	easing: easing[easingType] || easing.linear,
 });
 
-// Update animation progress - returns true if complete
+// update animation progress - returns true if complete
 updateAnimation = (animation) => {
 	animation.progress += 1 / animation.duration;
 	return animation.progress >= 1;
 };
 
-// Get current position during animation (speeds up between holes)
+// get current position during animation using simple linear interpolation
 getAnimationPosition = (animation) => {
 	const totalSegments = animation.path.length - 1;
 	const totalProgress = Math.min(animation.progress, 1);
 
-	// Time allocation: 20% for pauses at holes, 80% for movement between holes
-	const pauseTimeRatio = 0.2;
-	const movementTimeRatio = 0.8;
-
-	// Calculate which segment we're in and progress within that segment
+	// calculate which segment we're in and progress within that segment
 	const segmentWithPause = totalProgress * totalSegments;
 	const currentSegment = Math.floor(segmentWithPause);
 	const segmentProgress = segmentWithPause - currentSegment;
 
-	// If we're at or beyond the last segment, return final position
+	// if we're at or beyond the last segment, return final position
 	if (currentSegment >= totalSegments) {
 		return animation.path[animation.path.length - 1].pos;
 	}
 
-	// Split time: first pause at current hole, then move to next hole
-	const pauseDuration = pauseTimeRatio;
-	const moveDuration = movementTimeRatio;
-
-	if (segmentProgress < pauseDuration) {
-		// Pausing at current hole
-		return animation.path[currentSegment].pos;
-	} else {
-		// Moving to next hole
-		const moveProgress = (segmentProgress - pauseDuration) / moveDuration;
-		const from = animation.path[currentSegment].pos;
-		const to = animation.path[currentSegment + 1].pos;
-		return from.lerp(to, moveProgress);
-	}
+	// simple linear interpolation between current and next hole
+	const from = animation.path[currentSegment].pos;
+	const to = animation.path[currentSegment + 1].pos;
+	return from.lerp(to, segmentProgress);
 };
 
 cpuPlay = (board, player) => {
@@ -310,14 +288,9 @@ cpuPlay = (board, player) => {
 
 	const path = calculateMovePath(board, moveResult.from, moveResult.to);
 	const duration = ANIMATION_SPEED.CPU_DURATION;
-	cpuMoveAnimation = createMoveAnimation(
-		player.color,
-		path,
-		duration,
-		"easeInOut",
-	);
+	cpuMoveAnimation = createMoveAnimation(player.color, path, duration);
 
-	// Store move data to execute after animation
+	// store move data to execute after animation
 	pendingMove = {
 		from: moveResult.from,
 		to: moveResult.to,
@@ -326,11 +299,12 @@ cpuPlay = (board, player) => {
 	};
 
 	BUTTONCLICKSOUND.play();
-	return board; // Return original board until animation completes
+	return board; // return original board until animation completes
 };
 
 /////////////////////////////////////////////////////////////////////////////////
 
+// initialize game board with hexagonal layout
 function boardInit(radius) {
 	const board = [];
 	for (let q = -radius; q <= radius; q++) {
@@ -349,55 +323,37 @@ function boardInit(radius) {
 		);
 	});
 
-	// Clear existing goal holes
+	// clear existing goal holes
 	PLAYERS.forEach((player) => {
 		player.goalHoles = [];
 	});
 
 	const boardWithMarbles = filteredBoard.map((hole) => {
 		const { q, r, s } = hole.coords;
-		if (r > 4) return { ...hole, marble: marble("p1") };
-		if (q > 4) return { ...hole, marble: marble("p2") };
-		if (s > 4) return { ...hole, marble: marble("p3") };
+		if (r > 4) return { ...hole, marble: marble("top") };
+		if (q > 4) return { ...hole, marble: marble("topRight") };
+		if (s > 4) return { ...hole, marble: marble("bottomLeft") };
 		if (r < -4) return { ...hole, marble: marble("bottom") };
-		if (q < -4) return { ...hole, marble: marble("p5") };
-		if (s < -4) return { ...hole, marble: marble("p6") };
+		if (q < -4) return { ...hole, marble: marble("topLeft") };
+		if (s < -4) return { ...hole, marble: marble("bottomRight") };
 		return hole;
 	});
 
-	// Assign goal holes (opposite side from starting position)
+	// assign goal holes (opposite side from starting position)
 	boardWithMarbles.forEach((hole) => {
 		const { q, r, s } = hole.coords;
-
-		// p1 starts at r > 4, goal is r < -4 (bottom player's start)
-		if (r < -4) {
-			PLAYERS.find((p) => p.id === "p1")?.goalHoles.push(hole);
-		}
-		// p2 starts at q > 4, goal is q < -4 (p5's start)
-		if (q < -4) {
-			PLAYERS.find((p) => p.id === "p2")?.goalHoles.push(hole);
-		}
-		// p3 starts at s > 4, goal is s < -4 (p6's start)
-		if (s < -4) {
-			PLAYERS.find((p) => p.id === "p3")?.goalHoles.push(hole);
-		}
-		// bottom starts at r < -4, goal is r > 4 (p1's start)
-		if (r > 4) {
-			PLAYERS.find((p) => p.id === "bottom")?.goalHoles.push(hole);
-		}
-		// p5 starts at q < -4, goal is q > 4 (p2's start)
-		if (q > 4) {
-			PLAYERS.find((p) => p.id === "p5")?.goalHoles.push(hole);
-		}
-		// p6 starts at s < -4, goal is s > 4 (p3's start)
-		if (s > 4) {
-			PLAYERS.find((p) => p.id === "p6")?.goalHoles.push(hole);
-		}
+		if (r < -4) PLAYERS.find((p) => p.position === "top")?.goalHoles.push(hole);
+		if (q < -4) PLAYERS.find((p) => p.position === "topRight")?.goalHoles.push(hole);
+		if (s < -4) PLAYERS.find((p) => p.position === "bottomLeft")?.goalHoles.push(hole);
+		if (r > 4) PLAYERS.find((p) => p.position === "bottom")?.goalHoles.push(hole);
+		if (q > 4) PLAYERS.find((p) => p.position === "topLeft")?.goalHoles.push(hole);
+		if (s > 4) PLAYERS.find((p) => p.position === "bottomRight")?.goalHoles.push(hole);
 	});
 
 	return boardWithMarbles;
 }
 
+// initialize game state
 function gameInit() {
 	setCanvasFixedSize(vec2(720, 720));
 
@@ -410,6 +366,7 @@ function gameInit() {
 	pendingMove = null;
 }
 
+// update game logic each frame
 function gameUpdate() {
 	const animationComplete = (animation) => {
 		if (animation && updateAnimation(animation)) {
@@ -447,33 +404,30 @@ function gameUpdate() {
 
 	cpuMoveTimer = 0;
 
+	let mouseHole = null;
 	if (mouseWasPressed(0)) {
-		let mouseHole = nearestHole(board, mousePos);
-		if (mouseHole.marble.player === currPlayer.id)
+		mouseHole = nearestHole(board, mousePos);
+		if (mouseHole.marble.player === currPlayer.position)
 			currHeld = held(mouseHole, mouseHole.marble);
 	}
 	if (mouseWasReleased(0)) {
 		if (!currHeld.hole) return;
-		let mouseHole = nearestHole(board, mousePos);
+		mouseHole = nearestHole(board, mousePos);
 
-		if (!currHeld.moves(board).find((h) => h === mouseHole)) {
-			// alert("Move not valid");
-			console.log("Move not valid");
-		} else if (
+		const isValidMove =
+			currHeld.moves(board).find((h) => h === mouseHole) &&
 			mouseHole !== currHeld.hole &&
-			mouseHole.marble.color === empty().color
-		) {
-			// Create animation for human move
+			mouseHole.marble.color === empty().color;
+
+		if (isValidMove) {
 			const path = calculateMovePath(board, currHeld.hole, mouseHole);
 			const duration = ANIMATION_SPEED.HUMAN_DURATION;
 			humanMoveAnimation = createMoveAnimation(
 				currHeld.marble.color,
 				path,
 				duration,
-				"easeInOut",
 			);
 
-			// Store move data to execute after animation
 			const newBoard = placeMarble(
 				placeMarble(board, mouseHole, currHeld.marble),
 				currHeld.hole,
@@ -488,30 +442,38 @@ function gameUpdate() {
 			};
 
 			BUTTONCLICKSOUND.play();
+		} else {
+			console.log("Move not valid");
 		}
 
 		currHeld = held();
 	}
 }
 
+// render game visuals
 function gameRender() {
 	drawRect(vec2(), vec2(32), SANDLIGHTBROWN);
 	drawCircle(vec2(), BOARDSIZE * 15.5, currPlayer.color);
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
 
 	const isHumanPlayer = !currPlayer.cpu;
-	if (isHumanPlayer) {
-		drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
-	}
 
-	if (MOVEGUIDES && isHumanPlayer) {
-		for (const hole of currHeld.moves(board)) {
-			drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
+	// use hole highlighting for players
+	if (!currPlayer.cpu) {
+		drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
+		if (MOVEGUIDES) {
+			for (const hole of currHeld.moves(board)) {
+				drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
+			}
+		}
+		if (currHeld.hole) {
+			drawCircle(currHeld.hole.pos, HOLESIZE + 0.25, BLACK);
+			drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
 		}
 	}
 
+	// Board rendering
 	for (const hole of board) {
-		// Highlight current player's goal holes
 		if (GOALGUIDE && currPlayer.goalHoles.includes(hole)) {
 			drawCircle(hole.pos, HOLESIZE + 0.15, currPlayer.color);
 		}
@@ -519,22 +481,21 @@ function gameRender() {
 		drawCircle(hole.pos, MARBLESIZE, hole.marble?.color);
 	}
 
-	if (currHeld.hole && isHumanPlayer) {
-		drawCircle(currHeld.hole.pos, HOLESIZE + 0.25, BLACK);
+	if (currHeld.marble.color !== empty().color) {
 		drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
+		drawCircle(mousePos, HOLESIZE + 0.25, currHeld.marble.color);
 	}
 
+	// Pending move and animations
+	if (pendingMove) drawCircle(pendingMove.from.pos, HOLESIZE, HOLECOLOR);
 	if (cpuMoveAnimation) {
 		const animPos = getAnimationPosition(cpuMoveAnimation);
 		drawCircle(animPos, HOLESIZE + 0.25, cpuMoveAnimation.color);
 	}
-
 	if (humanMoveAnimation) {
 		const animPos = getAnimationPosition(humanMoveAnimation);
 		drawCircle(animPos, HOLESIZE + 0.25, humanMoveAnimation.color);
 	}
-
-	if (currHeld.marble.color !== empty().color && isHumanPlayer)
-		drawCircle(mousePos, HOLESIZE + 0.25, currHeld.marble.color);
 }
+// post-render hook
 function postGameRender() {}
