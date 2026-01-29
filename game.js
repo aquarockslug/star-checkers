@@ -164,7 +164,7 @@ calculateMovePath = (board, from, to) => {
 	return hoppingPath || [from, to];
 };
 
-validMoves = (board, hole, marble) =>
+validMoves = (board, hole) =>
 	hole
 		? [
 				...neighbors(board, hole).filter((h) => h.marble.color === HOLECOLOR),
@@ -223,22 +223,46 @@ cpuMove = (board, player) => {
 	for (const marbleHole of playerMarbles) {
 		const moves = validMoves(board, marbleHole, marbleHole.marble);
 		for (const targetHole of moves) {
-			validMovesList.push({ from: marbleHole, to: targetHole });
+			// calculate distance to nearest goal hole before and after move
+			const currentMinDistance = Math.min(
+				...player.goalHoles.map((goal) => holeDistance(marbleHole, goal)),
+			);
+			const newMinDistance = Math.min(
+				...player.goalHoles.map((goal) => holeDistance(targetHole, goal)),
+			);
+
+			// score: negative is better (closer to goals)
+			const score = newMinDistance - currentMinDistance;
+
+			validMovesList.push({
+				from: marbleHole,
+				to: targetHole,
+				score,
+			});
 		}
 	}
 
 	if (validMovesList.length === 0) return null;
 
-	const randomMove =
-		validMovesList[Math.floor(Math.random() * validMovesList.length)];
+	// sort by score (lower is better) and add some randomness for tie-breaking
+	validMovesList.sort((a, b) => {
+		const scoreDiff = a.score - b.score;
+		if (Math.abs(scoreDiff) < 0.01) {
+			// if scores are very similar, add randomness
+			return Math.random() - 0.5;
+		}
+		return scoreDiff;
+	});
+
+	const bestMove = validMovesList[0];
 	return {
 		newBoard: placeMarble(
-			placeMarble(board, randomMove.to, randomMove.from.marble),
-			randomMove.from,
+			placeMarble(board, bestMove.to, bestMove.from.marble),
+			bestMove.from,
 			empty(),
 		),
-		from: randomMove.from,
-		to: randomMove.to,
+		from: bestMove.from,
+		to: bestMove.to,
 	};
 };
 
@@ -343,11 +367,16 @@ function boardInit(radius) {
 	boardWithMarbles.forEach((hole) => {
 		const { q, r, s } = hole.coords;
 		if (r < -4) PLAYERS.find((p) => p.position === "top")?.goalHoles.push(hole);
-		if (q < -4) PLAYERS.find((p) => p.position === "topRight")?.goalHoles.push(hole);
-		if (s < -4) PLAYERS.find((p) => p.position === "bottomLeft")?.goalHoles.push(hole);
-		if (r > 4) PLAYERS.find((p) => p.position === "bottom")?.goalHoles.push(hole);
-		if (q > 4) PLAYERS.find((p) => p.position === "topLeft")?.goalHoles.push(hole);
-		if (s > 4) PLAYERS.find((p) => p.position === "bottomRight")?.goalHoles.push(hole);
+		if (q < -4)
+			PLAYERS.find((p) => p.position === "topRight")?.goalHoles.push(hole);
+		if (s < -4)
+			PLAYERS.find((p) => p.position === "bottomLeft")?.goalHoles.push(hole);
+		if (r > 4)
+			PLAYERS.find((p) => p.position === "bottom")?.goalHoles.push(hole);
+		if (q > 4)
+			PLAYERS.find((p) => p.position === "topLeft")?.goalHoles.push(hole);
+		if (s > 4)
+			PLAYERS.find((p) => p.position === "bottomRight")?.goalHoles.push(hole);
 	});
 
 	return boardWithMarbles;
