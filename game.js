@@ -8,17 +8,45 @@ const SANDLIGHTBROWN = new Color(0.97, 0.88, 0.63);
 
 const HOLECOLOR = new Color(0.97, 0.6, 0.22);
 const HOLESIZE = 1.35;
-const BOARDSIZE = 1.45;
+const BOARDSIZE = 1.49;
+const BOARDBORDERSIZE = 0.25;
 const MARBLESIZE = HOLESIZE - 0.25;
 
-const CPU_MOVE_DELAY = 1;
-const MOVEGUIDES = true;
-const GOALGUIDE = false;
+let CPU_MOVE_DELAY = 1;
+let MOVEGUIDES = false;
+let GOALGUIDE = false;
 
 // animation speed controls (constant duration regardless of path length)
 const ANIMATION_SPEED = {
 	CPU_DURATION: 7,
 	HUMAN_DURATION: 14,
+};
+
+let particles = [];
+
+easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
+spawnParticles = (pos, color, count = 3) => {
+	for (let i = 0; i < count; i++) {
+		const life = rand(0.4, 0.8);
+		particles.push({
+			pos: vec2(pos.x + rand(-0.2, 0.2), pos.y + rand(-0.2, 0.2)),
+			color: new Color(color.r, color.g, color.b),
+			life,
+			maxLife: life,
+			size: rand(0.3, 0.6) * MARBLESIZE,
+		});
+	}
+};
+
+updateParticles = () => {
+	for (let i = particles.length - 1; i >= 0; i--) {
+		const p = particles[i];
+		p.life -= 1 / 60;
+		p.pos.x += rand(-0.02, 0.02);
+		p.pos.y += rand(-0.02, 0.02);
+		if (p.life <= 0) particles.splice(i, 1);
+	}
 };
 
 const PLAYERS = [
@@ -28,6 +56,7 @@ const PLAYERS = [
 		color: new Color().setHex("#0080ff"),
 		cpu: true,
 		goalHoles: [],
+		displayName: "Blue",
 	},
 	{
 		position: "bottomRight",
@@ -35,6 +64,7 @@ const PLAYERS = [
 		color: new Color().setHex("#ffff00"),
 		cpu: true,
 		goalHoles: [],
+		displayName: "Yellow",
 	},
 	{
 		position: "bottomLeft",
@@ -42,6 +72,7 @@ const PLAYERS = [
 		color: new Color().setHex("#ff00ff"),
 		cpu: true,
 		goalHoles: [],
+		displayName: "Magenta",
 	},
 	{
 		position: "bottom",
@@ -49,6 +80,7 @@ const PLAYERS = [
 		color: new Color().setHex("#ff0080"),
 		cpu: false,
 		goalHoles: [],
+		displayName: "You",
 	},
 	{
 		position: "topLeft",
@@ -56,6 +88,7 @@ const PLAYERS = [
 		color: new Color().setHex("#00ff88"),
 		cpu: true,
 		goalHoles: [],
+		displayName: "Green",
 	},
 	{
 		position: "topRight",
@@ -63,6 +96,7 @@ const PLAYERS = [
 		color: new Color().setHex("#ff0008"),
 		cpu: true,
 		goalHoles: [],
+		displayName: "Red",
 	},
 ];
 
@@ -310,7 +344,7 @@ updateAnimation = (animation) => {
 	return animation.progress >= 1;
 };
 
-// get current position during animation using simple linear interpolation
+// get current position during animation with ease-out easing
 getAnimationPosition = (animation) => {
 	const totalSegments = animation.path.length - 1;
 	const totalProgress = Math.min(animation.progress, 1);
@@ -318,14 +352,14 @@ getAnimationPosition = (animation) => {
 	// calculate which segment we're in and progress within that segment
 	const segmentWithPause = totalProgress * totalSegments;
 	const currentSegment = Math.floor(segmentWithPause);
-	const segmentProgress = segmentWithPause - currentSegment;
+	const segmentProgress = easeOutCubic(segmentWithPause - currentSegment);
 
 	// if we're at or beyond the last segment, return final position
 	if (currentSegment >= totalSegments) {
 		return animation.path[animation.path.length - 1].pos;
 	}
 
-	// simple linear interpolation between current and next hole
+	// eased interpolation between current and next hole
 	const from = animation.path[currentSegment].pos;
 	const to = animation.path[currentSegment + 1].pos;
 	return from.lerp(to, segmentProgress);
@@ -407,16 +441,47 @@ function boardInit(radius) {
 			PLAYERS.find((p) => p.position === "topRight")?.goalHoles.push(hole);
 	});
 
+	// compute label positions for each player
+	for (const player of PLAYERS) {
+		const holes = boardWithMarbles.filter(
+			(h) => h.marble.player === player.position,
+		);
+		if (holes.length > 0) {
+			let sx = 0,
+				sy = 0;
+			for (const h of holes) {
+				sx += h.pos.x;
+				sy += h.pos.y;
+			}
+			player.labelPos = vec2(sx / holes.length, sy / holes.length).scale(1.35);
+		}
+	}
+
 	return boardWithMarbles;
+}
+
+// reset game state
+function resetGame() {
+	board = boardInit(8);
+	currPlayer = PLAYERS.find((p) => p.turnOrder === 1);
+	currHeld = held();
+	particles = [];
+	cpuMoveTimer = 0;
+	cpuMoveAnimation = null;
+	humanMoveAnimation = null;
+	pendingMove = null;
 }
 
 // initialize game state
 function gameInit() {
 	setCanvasFixedSize(vec2(720, 720));
 
+	setupUI();
+
 	board = boardInit(8);
 	currPlayer = PLAYERS.find((p) => p.turnOrder === 1);
 	currHeld = held();
+	particles = [];
 	cpuMoveTimer = 0;
 	cpuMoveAnimation = null;
 	humanMoveAnimation = null;
@@ -425,6 +490,8 @@ function gameInit() {
 
 // update game logic each frame
 function gameUpdate() {
+	updateParticles();
+
 	const animationComplete = (animation) => {
 		if (animation && updateAnimation(animation)) {
 			if (pendingMove) {
@@ -437,13 +504,29 @@ function gameUpdate() {
 		return false;
 	};
 
-	if (cpuMoveAnimation && animationComplete(cpuMoveAnimation)) {
-		cpuMoveAnimation = null;
+	if (cpuMoveAnimation) {
+		if (animationComplete(cpuMoveAnimation)) {
+			cpuMoveAnimation = null;
+		} else {
+			spawnParticles(
+				getAnimationPosition(cpuMoveAnimation),
+				cpuMoveAnimation.color,
+				1,
+			);
+		}
 		return;
 	}
 
-	if (humanMoveAnimation && animationComplete(humanMoveAnimation)) {
-		humanMoveAnimation = null;
+	if (humanMoveAnimation) {
+		if (animationComplete(humanMoveAnimation)) {
+			humanMoveAnimation = null;
+		} else {
+			spawnParticles(
+				getAnimationPosition(humanMoveAnimation),
+				humanMoveAnimation.color,
+				1,
+			);
+		}
 		return;
 	}
 
@@ -508,7 +591,7 @@ function gameUpdate() {
 // render game visuals
 function gameRender() {
 	drawRect(vec2(), vec2(32), SANDLIGHTBROWN);
-	drawCircle(vec2(), BOARDSIZE * 15.5, currPlayer.color);
+	drawCircle(vec2(), BOARDSIZE * 15 + BOARDBORDERSIZE, currPlayer.color);
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
 
 	const isHumanPlayer = !currPlayer.cpu;
@@ -536,6 +619,21 @@ function gameRender() {
 		drawCircle(hole.pos, MARBLESIZE, hole.marble?.color);
 	}
 
+	// player position labels
+	for (const player of PLAYERS) {
+		if (player.labelPos) {
+			const isActive = player === currPlayer;
+			drawText(
+				player.displayName,
+				player.labelPos,
+				isActive ? 0.8 : 0.5,
+				player.color,
+				isActive ? 0.08 : 0,
+				isActive ? BLACK : undefined,
+			);
+		}
+	}
+
 	if (currHeld.marble.color !== empty().color) {
 		drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
 		drawCircle(mousePos, HOLESIZE + 0.25, currHeld.marble.color);
@@ -551,6 +649,22 @@ function gameRender() {
 		const animPos = getAnimationPosition(humanMoveAnimation);
 		drawCircle(animPos, HOLESIZE + 0.25, humanMoveAnimation.color);
 	}
+
+	// particles
+	for (const p of particles) {
+		const alpha = Math.max(0, p.life / p.maxLife);
+		drawCircle(
+			p.pos,
+			p.size * (0.4 + 0.6 * alpha),
+			rgb(p.color.r, p.color.g, p.color.b, alpha * 0.5),
+		);
+	}
+
+	// turn indicator
+	const turnPrefix = currPlayer.cpu
+		? `${currPlayer.displayName} thinking`
+		: `Your turn`;
+	drawTextScreen(turnPrefix, vec2(0, 305), 1.6, currPlayer.color, 0.3, BLACK);
 }
 // post-render hook
 function postGameRender() {}
