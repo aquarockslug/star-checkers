@@ -23,6 +23,9 @@ const ANIMATION_SPEED = {
 };
 
 let particles = [];
+let gamePhase = "menu";
+let selectedPlayer = null;
+let cpuCount = 3;
 
 easeOutCubic = (t) => 1 - (1 - t) ** 3;
 
@@ -268,9 +271,11 @@ nextPlayer = (player, board) => {
 		paused = true;
 		alert("WINNER: " + winner.position);
 	}
-	const nextTurnOrder =
-		player.turnOrder === PLAYERS.length ? 1 : player.turnOrder + 1;
-	return PLAYERS.find((p) => p.turnOrder === nextTurnOrder);
+	const activePlayers = PLAYERS.filter((p) => p.active).sort(
+		(a, b) => a.turnOrder - b.turnOrder,
+	);
+	const currentIndex = activePlayers.indexOf(player);
+	return activePlayers[(currentIndex + 1) % activePlayers.length];
 };
 
 cpuMove = (board, player) => {
@@ -388,6 +393,98 @@ cpuPlay = (board, player) => {
 	return board; // return original board until animation completes
 };
 
+function updateMenu() {
+	if (mouseWasPressed(0)) {
+		const items = getMenuPlayerPositions();
+		for (const item of items) {
+			if (mousePos.distance(item.pos) < 3) {
+				selectedPlayer = item.player;
+				BUTTONCLICKSOUND.play();
+				return;
+			}
+		}
+		if (mousePos.distance(vec2(-5, -3)) < 2) {
+			cpuCount = Math.max(1, cpuCount - 1);
+			BUTTONCLICKSOUND.play();
+			return;
+		}
+		if (mousePos.distance(vec2(5, -3)) < 2) {
+			cpuCount = Math.min(5, cpuCount + 1);
+			BUTTONCLICKSOUND.play();
+			return;
+		}
+		if (mousePos.distance(vec2(0, -8)) < 5) {
+			BUTTONCLICKSOUND.play();
+			startGame();
+		}
+	}
+}
+
+function getMenuPlayerPositions() {
+	const positions = [];
+	const rows = [
+		{ y: 7, players: [PLAYERS[4], PLAYERS[0], PLAYERS[5]] },
+		{ y: 2, players: [PLAYERS[2], PLAYERS[3], PLAYERS[1]] },
+	];
+	for (const row of rows) {
+		for (let i = 0; i < row.players.length; i++) {
+			positions.push({
+				pos: vec2((i - 1) * 5.5, row.y),
+				player: row.players[i],
+			});
+		}
+	}
+	return positions;
+}
+
+function renderMenu() {
+	drawRect(vec2(), vec2(32), new Color(0, 0, 0, 0.85));
+	drawText(
+		"STAR CHECKERS",
+		vec2(0, 15),
+		3.5,
+		new Color(1, 0.9, 0.3),
+		0.1,
+		BLACK,
+	);
+	drawText("Pick your color", vec2(0, 12), 1.1, SANDLIGHTBROWN, 0.04, BLACK);
+
+	const items = getMenuPlayerPositions();
+	for (const item of items) {
+		const isSelected = selectedPlayer === item.player;
+		if (isSelected) {
+			drawCircle(item.pos, 3.5, new Color(1, 1, 1, 0.4));
+		}
+		drawCircle(item.pos, 2.8, item.player.color);
+	}
+
+	// CPU count control
+	const cpuLabelY = -3;
+	drawText(
+		"CPU Opponents: ",
+		vec2(0, cpuLabelY + 2),
+		0.9,
+		SANDLIGHTBROWN,
+		0,
+		undefined,
+	);
+	drawText("\u2014", vec2(-5, cpuLabelY), 1.5, SANDLIGHTBROWN, 0.04, BLACK);
+	drawText(
+		`${cpuCount}`,
+		vec2(0, cpuLabelY),
+		1.5,
+		new Color(1, 0.9, 0.3),
+		0.06,
+		BLACK,
+	);
+	drawText("+", vec2(5, cpuLabelY), 1.5, SANDLIGHTBROWN, 0.04, BLACK);
+
+	// Start button
+	const btnPos = vec2(0, -8);
+	drawRect(btnPos, vec2(18, 5), SANDRED);
+	drawText("Start Game", btnPos, 1, SANDLIGHTBROWN, 0.04, BLACK);
+}
+
 /////////////////////////////////////////////////////////////////////////////////
 
 // initialize game board with hexagonal layout
@@ -416,33 +513,56 @@ function boardInit(radius) {
 
 	const boardWithMarbles = filteredBoard.map((hole) => {
 		const { q, r, s } = hole.coords;
-		if (r > 4) return { ...hole, marble: marble("top") };
-		if (q > 4) return { ...hole, marble: marble("bottomRight") };
-		if (s > 4) return { ...hole, marble: marble("bottomLeft") };
-		if (r < -4) return { ...hole, marble: marble("bottom") };
-		if (q < -4) return { ...hole, marble: marble("topLeft") };
-		if (s < -4) return { ...hole, marble: marble("topRight") };
+		const position =
+			r > 4
+				? "top"
+				: q > 4
+					? "bottomRight"
+					: s > 4
+						? "bottomLeft"
+						: r < -4
+							? "bottom"
+							: q < -4
+								? "topLeft"
+								: s < -4
+									? "topRight"
+									: null;
+		if (position) {
+			const player = PLAYERS.find((p) => p.position === position);
+			if (player?.active) return { ...hole, marble: marble(position) };
+		}
 		return hole;
 	});
 
 	// assign goal holes (opposite side from starting position)
 	boardWithMarbles.forEach((hole) => {
 		const { q, r, s } = hole.coords;
-		if (r < -4) PLAYERS.find((p) => p.position === "top")?.goalHoles.push(hole);
-		if (q < -4)
-			PLAYERS.find((p) => p.position === "bottomRight")?.goalHoles.push(hole);
-		if (s < -4)
-			PLAYERS.find((p) => p.position === "bottomLeft")?.goalHoles.push(hole);
-		if (r > 4)
-			PLAYERS.find((p) => p.position === "bottom")?.goalHoles.push(hole);
-		if (q > 4)
-			PLAYERS.find((p) => p.position === "topLeft")?.goalHoles.push(hole);
-		if (s > 4)
-			PLAYERS.find((p) => p.position === "topRight")?.goalHoles.push(hole);
+		const goalPosition =
+			r < -4
+				? "top"
+				: q < -4
+					? "bottomRight"
+					: s < -4
+						? "bottomLeft"
+						: r > 4
+							? "bottom"
+							: q > 4
+								? "topLeft"
+								: s > 4
+									? "topRight"
+									: null;
+		if (goalPosition) {
+			const player = PLAYERS.find((p) => p.position === goalPosition);
+			if (player?.active) player.goalHoles.push(hole);
+		}
 	});
 
 	// compute label positions for each player
 	for (const player of PLAYERS) {
+		if (!player.active) {
+			player.labelPos = undefined;
+			continue;
+		}
 		const holes = boardWithMarbles.filter(
 			(h) => h.marble.player === player.position,
 		);
@@ -463,7 +583,10 @@ function boardInit(radius) {
 // reset game state
 function resetGame() {
 	board = boardInit(8);
-	currPlayer = PLAYERS.find((p) => p.turnOrder === 1);
+	const activePlayers = PLAYERS.filter((p) => p.active).sort(
+		(a, b) => a.turnOrder - b.turnOrder,
+	);
+	currPlayer = activePlayers[0];
 	currHeld = held();
 	particles = [];
 	cpuMoveTimer = 0;
@@ -475,21 +598,61 @@ function resetGame() {
 // initialize game state
 function gameInit() {
 	setCanvasFixedSize(vec2(720, 720));
-
+	fontDefault = "Iceberg, sans-serif";
 	setupUI();
-
+	selectedPlayer = PLAYERS[3];
+	gamePhase = "menu";
 	board = boardInit(8);
 	currPlayer = PLAYERS.find((p) => p.turnOrder === 1);
 	currHeld = held();
-	particles = [];
-	cpuMoveTimer = 0;
-	cpuMoveAnimation = null;
-	humanMoveAnimation = null;
-	pendingMove = null;
+}
+
+function startGame() {
+	for (const p of PLAYERS) {
+		p.active = false;
+		p.cpu = true;
+	}
+
+	const bottomPlayer = PLAYERS.find((p) => p.position === "bottom");
+	bottomPlayer.active = true;
+	bottomPlayer.cpu = false;
+
+	if (selectedPlayer !== bottomPlayer) {
+		const tempColor = bottomPlayer.color;
+		bottomPlayer.color = selectedPlayer.color;
+		selectedPlayer.color = tempColor;
+		const tempName = bottomPlayer.displayName;
+		bottomPlayer.displayName = selectedPlayer.displayName;
+		selectedPlayer.displayName = tempName;
+	}
+
+	const topPlayer = PLAYERS.find((p) => p.position === "top");
+	topPlayer.active = true;
+	topPlayer.cpu = true;
+
+	const remaining = ["bottomRight", "bottomLeft", "topLeft", "topRight"];
+	for (let i = remaining.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+	}
+	const extraCount = Math.min(cpuCount - 1, remaining.length);
+	for (let i = 0; i < extraCount; i++) {
+		const p = PLAYERS.find((p) => p.position === remaining[i]);
+		p.active = true;
+		p.cpu = true;
+	}
+
+	resetGame();
+	gamePhase = "playing";
 }
 
 // update game logic each frame
 function gameUpdate() {
+	if (gamePhase === "menu") {
+		updateMenu();
+		return;
+	}
+
 	updateParticles();
 
 	const animationComplete = (animation) => {
@@ -590,6 +753,11 @@ function gameUpdate() {
 
 // render game visuals
 function gameRender() {
+	if (gamePhase === "menu") {
+		renderMenu();
+		return;
+	}
+
 	drawRect(vec2(), vec2(32), SANDLIGHTBROWN);
 	drawCircle(vec2(), BOARDSIZE * 15 + BOARDBORDERSIZE, currPlayer.color);
 	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);

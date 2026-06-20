@@ -78,7 +78,7 @@ function setupUI() {
 	resetButton.color = HOLECOLOR;
 	resetButton.onClick = () => {
 		uiSystem.showConfirmDialog("Reset game?", () => {
-			resetGame();
+			gamePhase = "menu";
 			setSettingsVisible(false);
 		});
 	};
@@ -103,7 +103,17 @@ function toggleSettings() {
 	uiSettings.visible = !uiSettings.visible;
 }
 
+function setUIVisible(visible) {
+	uiRoot.visible = visible;
+}
+
 function gameUpdatePost() {
+	if (gamePhase === "menu") {
+		setUIVisible(false);
+		setPaused(false);
+		return;
+	}
+	setUIVisible(true);
 	if (keyWasPressed("Escape") && !uiSystem.confirmDialog) {
 		toggleSettings();
 	}
