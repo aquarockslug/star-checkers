@@ -3,20 +3,109 @@ const BUTTONCLICKSOUND = new Sound([
 	0.04, 0.05, 350,
 ]);
 
-const SANDRED = new Color(0.78, 0.28, 0.03);
-const SANDLIGHTBROWN = new Color(0.97, 0.88, 0.63);
+const WINJINGLE = new Sound([
+	0.6, 0.05, 420, 0.02, 0.9, 0, 1, 1.8, 0, 0, 0, 0, 0, 0.4, 0, 0.02, 0, 0.6,
+	0.08, 0.01, 600,
+]);
 
-const HOLECOLOR = new Color(0.97, 0.6, 0.22);
+const SANDLIGHTBROWN = new Color(0.97, 0.88, 0.63);
+const GOLD = new Color().setHex("#ffd76a");
+const GOLDDEEP = new Color().setHex("#c98a1b");
+
+// space theme palette
+const SKYTOP = new Color().setHex("#131a33");
+const SKYBOTTOM = new Color().setHex("#05070f");
+const PLATECOLOR = new Color().setHex("#232b47");
+const PLATEEDGE = new Color().setHex("#414e7d");
+const HOLECOLOR = new Color().setHex("#0d1122");
+
 const HOLESIZE = 1.35;
 const BOARDSIZE = 1.49;
-const BOARDBORDERSIZE = 0.25;
 const MARBLESIZE = HOLESIZE - 0.25;
+
+// star plate outline (six-pointed star around the holes)
+const STAR_TIP_R = Math.sqrt(48) * BOARDSIZE + 0.55;
+const STAR_VALLEY_R = Math.sqrt(21) * BOARDSIZE + 0.5;
+let STARPTS = [];
+let STARSKY = [];
+
+mix = (a, b, t) =>
+	new Color(
+		a.r + (b.r - a.r) * t,
+		a.g + (b.g - a.g) * t,
+		a.b + (b.b - a.b) * t,
+	);
+shade = (c, t) => mix(c, BLACK, t);
+tint = (c, t) => mix(c, WHITE, t);
+withAlpha = (c, a) => new Color(c.r, c.g, c.b, a);
+
+initStarPlate = () => {
+	STARPTS = [];
+	for (let k = 0; k < 12; k++) {
+		const ang = Math.PI / 6 + (k * Math.PI) / 6;
+		const rad = k % 2 === 0 ? STAR_TIP_R : STAR_VALLEY_R;
+		STARPTS.push(vec2(Math.cos(ang) * rad, Math.sin(ang) * rad));
+	}
+};
+
+initStarfield = () => {
+	const rng = new RandomGenerator(1337);
+	STARSKY = [];
+	for (let i = 0; i < 130; i++) {
+		STARSKY.push({
+			pos: vec2(rng.float(-13, 13), rng.float(-12.5, 12.5)),
+			size: rng.float(0.02, 0.09),
+			alpha: rng.float(0.15, 0.7),
+			phase: rng.float(0, Math.PI * 2),
+			speed: rng.float(0.5, 2),
+		});
+	}
+};
+
+renderBackground = () => {
+	drawRectGradient(vec2(), vec2(40), SKYTOP, SKYBOTTOM);
+	for (const s of STARSKY) {
+		const tw = 0.6 + 0.4 * Math.sin(time * s.speed + s.phase);
+		drawCircle(s.pos, s.size, withAlpha(WHITE, s.alpha * tw));
+	}
+};
+
+drawStarPlate = () => {
+	// soft glow ring tinted by current player
+	setAdditiveBlendMode(true);
+	drawCircle(vec2(), STAR_TIP_R + 0.7, withAlpha(currPlayer.color, 0.08));
+	drawCircle(vec2(), STAR_TIP_R + 0.3, withAlpha(currPlayer.color, 0.06));
+	setAdditiveBlendMode(false);
+
+	// drop shadow
+	const shadowPts = STARPTS.map((p) => vec2(p.x + 0.3, p.y - 0.45));
+	drawPoly(shadowPts, new Color(0, 0, 0, 0.4));
+
+	drawPoly(STARPTS, PLATECOLOR, 0.22, PLATEEDGE);
+};
+
+drawMarble = (pos, size, color) => {
+	drawCircle(pos, size, color, 0.1, shade(color, 0.5));
+};
+
+drawHole = (pos) => {
+	drawCircle(pos, HOLESIZE + 0.07, shade(PLATECOLOR, 0.5));
+	drawCircle(pos, HOLESIZE, HOLECOLOR, 0.08, PLATEEDGE);
+};
+
+drawCapsule = (pos, size, color, borderColor) => {
+	if (borderColor)
+		drawCapsule(pos, vec2(size.x + 0.24, size.y + 0.24), borderColor);
+	drawRect(pos, size, color);
+	const r = size.y / 2;
+	drawCircle(vec2(pos.x - size.x / 2, pos.y), r, color);
+	drawCircle(vec2(pos.x + size.x / 2, pos.y), r, color);
+};
 
 let CPU_MOVE_DELAY = 1;
 let MOVEGUIDES = false;
 let GOALGUIDE = false;
 
-// animation speed controls (constant duration regardless of path length)
 const ANIMATION_SPEED = {
 	CPU_DURATION: 7,
 	HUMAN_DURATION: 14,
@@ -25,33 +114,9 @@ const ANIMATION_SPEED = {
 let particles = [];
 let gamePhase = "menu";
 let selectedPlayer = null;
-let cpuCount = 3;
-
-easeOutCubic = (t) => 1 - (1 - t) ** 3;
-
-spawnParticles = (pos, color, count = 3) => {
-	for (let i = 0; i < count; i++) {
-		const life = rand(0.4, 0.8);
-		particles.push({
-			pos: vec2(pos.x + rand(-0.2, 0.2), pos.y + rand(-0.2, 0.2)),
-			color: new Color(color.r, color.g, color.b),
-			life,
-			maxLife: life,
-			size: rand(0.3, 0.6) * MARBLESIZE,
-		});
-	}
-};
-
-updateParticles = () => {
-	for (let i = particles.length - 1; i >= 0; i--) {
-		const p = particles[i];
-		p.life -= 1 / 60;
-		p.pos.x += rand(-0.02, 0.02);
-		p.pos.y += rand(-0.02, 0.02);
-		if (p.life <= 0) particles.splice(i, 1);
-	}
-};
-
+let cpuCount = 1;
+let winnerPlayer = null;
+let confettiTimer = 0;
 const PLAYERS = [
 	{
 		position: "top",
@@ -83,7 +148,7 @@ const PLAYERS = [
 		color: new Color().setHex("#ff0080"),
 		cpu: false,
 		goalHoles: [],
-		displayName: "You",
+		displayName: "Pink",
 	},
 	{
 		position: "topLeft",
@@ -102,6 +167,34 @@ const PLAYERS = [
 		displayName: "Red",
 	},
 ];
+
+easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
+spawnParticles = (pos, color, count = 3, vel = vec2()) => {
+	for (let i = 0; i < count; i++) {
+		const life = rand(0.4, 0.8);
+		particles.push({
+			pos: vec2(pos.x + rand(-0.2, 0.2), pos.y + rand(-0.2, 0.2)),
+			color: new Color(color.r, color.g, color.b),
+			life,
+			maxLife: life,
+			size: rand(0.3, 0.6) * MARBLESIZE,
+			vel: vec2(vel.x + rand(-0.3, 0.3), vel.y + rand(-0.3, 0.3)),
+		});
+	}
+};
+
+updateParticles = () => {
+	for (let i = particles.length - 1; i >= 0; i--) {
+		const p = particles[i];
+		p.life -= 1 / 60;
+		p.pos.x += p.vel.x / 60;
+		p.pos.y += p.vel.y / 60;
+		p.vel.x *= 0.99;
+		p.vel.y *= 0.99;
+		if (p.life <= 0) particles.splice(i, 1);
+	}
+};
 
 // creates a hexagonal hole with coordinates and marble
 hole = (q, r, marble) => {
@@ -268,8 +361,17 @@ checkWinner = (board) => {
 nextPlayer = (player, board) => {
 	const winner = checkWinner(board);
 	if (winner) {
-		paused = true;
-		alert("WINNER: " + winner.position);
+		winnerPlayer = winner;
+		gamePhase = "gameover";
+		WINJINGLE.play();
+		for (let i = 0; i < 60; i++)
+			spawnParticles(
+				winner.labelPos || vec2(),
+				winner.color,
+				1,
+				randVec2(rand(1, 7)),
+			);
+		return winner;
 	}
 	const activePlayers = PLAYERS.filter((p) => p.active).sort(
 		(a, b) => a.turnOrder - b.turnOrder,
@@ -397,23 +499,23 @@ function updateMenu() {
 	if (mouseWasPressed(0)) {
 		const items = getMenuPlayerPositions();
 		for (const item of items) {
-			if (mousePos.distance(item.pos) < 3) {
+			if (mousePos.distance(item.pos) < 2.9) {
 				selectedPlayer = item.player;
 				BUTTONCLICKSOUND.play();
 				return;
 			}
 		}
-		if (mousePos.distance(vec2(-5, -3)) < 2) {
+		if (mousePos.distance(vec2(-5, -3)) < 1.6) {
 			cpuCount = Math.max(1, cpuCount - 1);
 			BUTTONCLICKSOUND.play();
 			return;
 		}
-		if (mousePos.distance(vec2(5, -3)) < 2) {
+		if (mousePos.distance(vec2(5, -3)) < 1.6) {
 			cpuCount = Math.min(5, cpuCount + 1);
 			BUTTONCLICKSOUND.play();
 			return;
 		}
-		if (mousePos.distance(vec2(0, -8)) < 5) {
+		if (mousePos.distance(vec2(0, -7.8)) < 4) {
 			BUTTONCLICKSOUND.play();
 			startGame();
 		}
@@ -438,51 +540,104 @@ function getMenuPlayerPositions() {
 }
 
 function renderMenu() {
-	drawRect(vec2(), vec2(32), new Color(0, 0, 0, 0.85));
-	drawText(
-		"STAR CHECKERS",
-		vec2(0, 15),
-		3.5,
-		new Color(1, 0.9, 0.3),
-		0.1,
-		BLACK,
-	);
-	drawText("Pick your color", vec2(0, 12), 1.1, SANDLIGHTBROWN, 0.04, BLACK);
+	renderBackground();
 
+	// title with soft glow + drop shadow
+	setAdditiveBlendMode(true);
+	drawCircle(vec2(0, 13.2), 7.5, withAlpha(GOLD, 0.06));
+	setAdditiveBlendMode(false);
+	drawText("STAR CHECKERS", vec2(0.14, 13.26), 2.6, new Color(0, 0, 0, 0.65));
+	drawText("STAR CHECKERS", vec2(0, 13.4), 2.6, GOLD);
+	drawText(
+		"a race of shining marbles",
+		vec2(0, 11.3),
+		0.85,
+		withAlpha(SANDLIGHTBROWN, 0.9),
+	);
+
+	// color picker
 	const items = getMenuPlayerPositions();
 	for (const item of items) {
 		const isSelected = selectedPlayer === item.player;
+		const isHover = mousePos.distance(item.pos) < 2;
+		const bob = isSelected ? Math.sin(time * 5) * 0.15 : 0;
+		const pos = vec2(item.pos.x, item.pos.y + bob);
+		const size = (isHover || isSelected ? 1.7 : 1.55) * MARBLESIZE * 1.35;
+
 		if (isSelected) {
-			drawCircle(item.pos, 3.5, new Color(1, 1, 1, 0.4));
+			setAdditiveBlendMode(true);
+			drawCircle(
+				pos,
+				size + 0.9 + Math.sin(time * 6) * 0.25,
+				withAlpha(item.player.color, 0.35),
+			);
+			drawCircle(pos, size + 0.45, withAlpha(WHITE, 0.25));
+			setAdditiveBlendMode(false);
+		} else if (isHover) {
+			drawCircle(pos, size + 0.35, withAlpha(WHITE, 0.18));
 		}
-		drawCircle(item.pos, 2.8, item.player.color);
+		drawMarble(pos, size, item.player.color);
+		drawText(
+			item.player.displayName,
+			vec2(pos.x, item.pos.y - 2.3),
+			isSelected ? 0.62 : 0.52,
+			isSelected
+				? tint(item.player.color, 0.4)
+				: withAlpha(SANDLIGHTBROWN, 0.75),
+			0.05,
+			new Color(0, 0, 0, 0.5),
+		);
 	}
 
 	// CPU count control
 	const cpuLabelY = -3;
 	drawText(
-		"CPU Opponents: ",
-		vec2(0, cpuLabelY + 2),
-		0.9,
-		SANDLIGHTBROWN,
-		0,
-		undefined,
+		"CPU OPPONENTS",
+		vec2(0, cpuLabelY + 1.9),
+		0.72,
+		withAlpha(SANDLIGHTBROWN, 0.85),
 	);
-	drawText("\u2014", vec2(-5, cpuLabelY), 1.5, SANDLIGHTBROWN, 0.04, BLACK);
+	for (const [bx, label] of [
+		[-5, "\u2014"],
+		[5, "+"],
+	]) {
+		const hover = mousePos.distance(vec2(bx, cpuLabelY)) < 1.6;
+		drawCapsule(
+			vec2(bx, cpuLabelY),
+			vec2(2.2, 1.9),
+			hover ? PLATEEDGE : PLATECOLOR,
+			PLATEEDGE,
+		);
+		drawText(label, vec2(bx, cpuLabelY), 1.2, hover ? GOLD : SANDLIGHTBROWN);
+	}
 	drawText(
 		`${cpuCount}`,
 		vec2(0, cpuLabelY),
-		1.5,
-		new Color(1, 0.9, 0.3),
+		1.7,
+		GOLD,
 		0.06,
-		BLACK,
+		new Color(0, 0, 0, 0.6),
 	);
-	drawText("+", vec2(5, cpuLabelY), 1.5, SANDLIGHTBROWN, 0.04, BLACK);
 
 	// Start button
-	const btnPos = vec2(0, -8);
-	drawRect(btnPos, vec2(18, 5), SANDRED);
-	drawText("Start Game", btnPos, 1, SANDLIGHTBROWN, 0.04, BLACK);
+	const btnPos = vec2(0, -7.8);
+	const btnHover = mousePos.distance(btnPos) < 4;
+	const w = btnHover ? 9.6 : 9.2;
+	drawCapsule(btnPos, vec2(w + 0.24, 2.74), shade(GOLDDEEP, 0.25));
+	drawRectGradient(
+		btnPos,
+		vec2(w, 2.5),
+		tint(GOLD, btnHover ? 0.5 : 0.3),
+		GOLD,
+	);
+	drawText("START GAME", btnPos, 0.95, shade(GOLDDEEP, 0.45));
+
+	drawText(
+		"first to fill the far side wins",
+		vec2(0, -10.6),
+		0.55,
+		withAlpha(SANDLIGHTBROWN, 0.5),
+	);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -593,12 +748,17 @@ function resetGame() {
 	cpuMoveAnimation = null;
 	humanMoveAnimation = null;
 	pendingMove = null;
+	winnerPlayer = null;
+	confettiTimer = 0;
 }
 
 // initialize game state
 function gameInit() {
 	setCanvasFixedSize(vec2(720, 720));
 	fontDefault = "Iceberg, sans-serif";
+	canvasClearColor = SKYBOTTOM;
+	initStarPlate();
+	initStarfield();
 	setupUI();
 	selectedPlayer = PLAYERS[3];
 	gamePhase = "menu";
@@ -650,6 +810,11 @@ function startGame() {
 function gameUpdate() {
 	if (gamePhase === "menu") {
 		updateMenu();
+		return;
+	}
+
+	if (gamePhase === "gameover") {
+		updateGameOver();
 		return;
 	}
 
@@ -751,6 +916,43 @@ function gameUpdate() {
 	}
 }
 
+function updateGameOver() {
+	updateParticles();
+
+	confettiTimer -= 1 / 60;
+	if (confettiTimer <= 0) {
+		confettiTimer = 0.15;
+		const colors = [
+			winnerPlayer.color,
+			tint(winnerPlayer.color, 0.4),
+			GOLD,
+			SANDLIGHTBROWN,
+		];
+		for (let i = 0; i < 3; i++) {
+			spawnParticles(
+				vec2(rand(-11, 11), rand(9, 13)),
+				colors[Math.floor(rand(0, colors.length))],
+				1,
+				vec2(rand(-1, 1), rand(-4, -7)),
+			);
+		}
+	}
+
+	if (mouseWasPressed(0)) {
+		const inRect = (pos, size) =>
+			abs(mousePos.x - pos.x) < size.x / 2 &&
+			abs(mousePos.y - pos.y) < size.y / 2;
+		if (inRect(vec2(0, -3.4), vec2(8.6, 2.3))) {
+			BUTTONCLICKSOUND.play();
+			resetGame();
+			gamePhase = "playing";
+		} else if (inRect(vec2(0, -6.8), vec2(6.8, 2))) {
+			BUTTONCLICKSOUND.play();
+			gamePhase = "menu";
+		}
+	}
+}
+
 // render game visuals
 function gameRender() {
 	if (gamePhase === "menu") {
@@ -758,64 +960,98 @@ function gameRender() {
 		return;
 	}
 
-	drawRect(vec2(), vec2(32), SANDLIGHTBROWN);
-	drawCircle(vec2(), BOARDSIZE * 15 + BOARDBORDERSIZE, currPlayer.color);
-	drawCircle(vec2(), BOARDSIZE * 15, SANDRED);
+	renderBackground();
+	drawStarPlate();
 
-	const isHumanPlayer = !currPlayer.cpu;
+	// Board rendering
+	for (const h of board) {
+		drawHole(h.pos);
+		if (GOALGUIDE && currPlayer.goalHoles.includes(h)) {
+			drawCircle(
+				h.pos,
+				HOLESIZE + 0.2,
+				withAlpha(currPlayer.color, 0.12),
+				0.14,
+				withAlpha(currPlayer.color, 0.8),
+			);
+		}
+		const m = h.marble;
+		if (m && m.color !== HOLECOLOR) drawMarble(h.pos, MARBLESIZE, m.color);
+	}
 
-	// use hole highlighting for players
-	if (!currPlayer.cpu) {
-		drawCircle(nearestHole(board, mousePos).pos, HOLESIZE + 0.25, BLACK);
-		if (MOVEGUIDES) {
-			for (const hole of currHeld.moves(board)) {
-				drawCircle(hole.pos, HOLESIZE + 0.25, currPlayer.color);
+	const isHumanTurn = !currPlayer.cpu;
+
+	// hover + selection highlights for human player
+	if (isHumanTurn) {
+		const hoverHole = nearestHole(board, mousePos);
+		if (!currHeld.hole || hoverHole !== currHeld.hole) {
+			drawCircle(
+				hoverHole.pos,
+				HOLESIZE + 0.16,
+				withAlpha(WHITE, 0.08),
+				0.1,
+				withAlpha(WHITE, 0.35),
+			);
+		}
+		if (MOVEGUIDES && currHeld.hole) {
+			for (const target of currHeld.moves(board)) {
+				const pulse = HOLESIZE + 0.15 + 0.07 * Math.sin(time * 6);
+				drawCircle(
+					target.pos,
+					pulse,
+					withAlpha(currPlayer.color, 0.15),
+					0.12,
+					currPlayer.color,
+				);
 			}
 		}
 		if (currHeld.hole) {
-			drawCircle(currHeld.hole.pos, HOLESIZE + 0.25, BLACK);
-			drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
+			setAdditiveBlendMode(true);
+			drawCircle(
+				currHeld.hole.pos,
+				HOLESIZE + 0.4 + Math.sin(time * 5) * 0.12,
+				withAlpha(currPlayer.color, 0.3),
+			);
+			setAdditiveBlendMode(false);
 		}
-	}
-
-	// Board rendering
-	for (const hole of board) {
-		if (GOALGUIDE && currPlayer.goalHoles.includes(hole)) {
-			drawCircle(hole.pos, HOLESIZE + 0.15, currPlayer.color);
-		}
-		drawCircle(hole.pos, HOLESIZE, HOLECOLOR);
-		drawCircle(hole.pos, MARBLESIZE, hole.marble?.color);
 	}
 
 	// player position labels
 	for (const player of PLAYERS) {
-		if (player.labelPos) {
-			const isActive = player === currPlayer;
-			drawText(
-				player.displayName,
-				player.labelPos,
-				isActive ? 0.8 : 0.5,
-				player.color,
-				isActive ? 0.08 : 0,
-				isActive ? BLACK : undefined,
-			);
-		}
+		if (!player.labelPos) continue;
+		const isActive = player === currPlayer && gamePhase === "playing";
+		const size = isActive ? 0.85 + 0.05 * Math.sin(time * 4) : 0.55;
+		const color = isActive
+			? tint(player.color, 0.3)
+			: withAlpha(tint(player.color, 0.15), 0.8);
+		drawText(
+			player.displayName,
+			player.labelPos.add(vec2(0.05, -0.05)),
+			size,
+			new Color(0, 0, 0, 0.6),
+		);
+		drawText(player.displayName, player.labelPos, size, color);
 	}
 
-	if (currHeld.marble.color !== empty().color) {
-		drawCircle(currHeld.hole.pos, HOLESIZE, HOLECOLOR);
-		drawCircle(mousePos, HOLESIZE + 0.25, currHeld.marble.color);
+	// marble being carried by the mouse
+	if (currHeld.marble.color !== HOLECOLOR) {
+		drawCircle(
+			vec2(mousePos.x + 0.22, mousePos.y - 0.28),
+			MARBLESIZE * 0.95,
+			new Color(0, 0, 0, 0.35),
+		);
+		drawMarble(mousePos, MARBLESIZE * 1.05, currHeld.marble.color);
 	}
 
 	// Pending move and animations
-	if (pendingMove) drawCircle(pendingMove.from.pos, HOLESIZE, HOLECOLOR);
-	if (cpuMoveAnimation) {
-		const animPos = getAnimationPosition(cpuMoveAnimation);
-		drawCircle(animPos, HOLESIZE + 0.25, cpuMoveAnimation.color);
-	}
-	if (humanMoveAnimation) {
-		const animPos = getAnimationPosition(humanMoveAnimation);
-		drawCircle(animPos, HOLESIZE + 0.25, humanMoveAnimation.color);
+	if (pendingMove) drawHole(pendingMove.from.pos);
+	for (const anim of [cpuMoveAnimation, humanMoveAnimation]) {
+		if (!anim) continue;
+		const animPos = getAnimationPosition(anim);
+		setAdditiveBlendMode(true);
+		drawCircle(animPos, MARBLESIZE * 1.5, withAlpha(anim.color, 0.2));
+		setAdditiveBlendMode(false);
+		drawMarble(animPos, MARBLESIZE * 1.05, anim.color);
 	}
 
 	// particles
@@ -824,15 +1060,69 @@ function gameRender() {
 		drawCircle(
 			p.pos,
 			p.size * (0.4 + 0.6 * alpha),
-			rgb(p.color.r, p.color.g, p.color.b, alpha * 0.5),
+			withAlpha(p.color, alpha * 0.6),
 		);
 	}
 
-	// turn indicator
-	const turnPrefix = currPlayer.cpu
-		? `${currPlayer.displayName} thinking`
-		: `Your turn`;
-	drawTextScreen(turnPrefix, vec2(0, 305), 1.6, currPlayer.color, 0.3, BLACK);
+	// turn indicator pill
+	if (gamePhase === "playing") {
+		const pillY = -10;
+		const msg = currPlayer.cpu
+			? `${currPlayer.displayName} is thinking${".".repeat(
+					1 + (Math.floor(time * 2) % 3),
+				)}`
+			: "Your turn";
+		const textW = 0.42 * msg.length * 0.72 + 4.2;
+		drawCapsule(
+			vec2(0, pillY),
+			vec2(textW, 1.5),
+			new Color(0, 0, 0, 0.55),
+			withAlpha(PLATEEDGE, 0.9),
+		);
+		drawMarble(vec2(-textW / 2 + 1.1, pillY), 0.52, currPlayer.color);
+		drawText(msg, vec2(0.45, pillY), 0.72, tint(currPlayer.color, 0.35));
+	}
+
+	if (gamePhase === "gameover") renderGameOver();
+}
+
+function renderGameOver() {
+	drawRect(vec2(), vec2(40), new Color(0.02, 0.03, 0.08, 0.65));
+
+	drawText("WINNER", vec2(0.14, 6.66), 2.8, new Color(0, 0, 0, 0.7));
+	drawText("WINNER", vec2(0, 6.8), 2.8, GOLD);
+	drawText(
+		`${winnerPlayer.displayName} fills the far star`,
+		vec2(0, 4.7),
+		0.9,
+		tint(winnerPlayer.color, 0.3),
+	);
+
+	// big glossy champion marble
+	setAdditiveBlendMode(true);
+	drawCircle(vec2(0, 2.3), 3.4, withAlpha(winnerPlayer.color, 0.25));
+	setAdditiveBlendMode(false);
+	drawMarble(vec2(0, 2.3), 2, winnerPlayer.color);
+
+	const playHover = abs(mousePos.x) < 4.3 && abs(mousePos.y + 3.4) < 1.15;
+	const menuHover = abs(mousePos.x) < 3.4 && abs(mousePos.y + 6.8) < 1;
+
+	drawCapsule(vec2(0, -3.4), vec2(8.84, 2.54), shade(GOLDDEEP, 0.25));
+	drawRectGradient(
+		vec2(0, -3.4),
+		vec2(8.6, 2.3),
+		tint(GOLD, playHover ? 0.5 : 0.3),
+		GOLD,
+	);
+	drawText("PLAY AGAIN", vec2(0, -3.4), 0.85, shade(GOLDDEEP, 0.45));
+
+	drawCapsule(
+		vec2(0, -6.8),
+		vec2(7.04, 2.24),
+		playHover || menuHover ? PLATEEDGE : PLATECOLOR,
+		PLATEEDGE,
+	);
+	drawText("MENU", vec2(0, -6.8), 0.8, SANDLIGHTBROWN);
 }
 // post-render hook
 function postGameRender() {}

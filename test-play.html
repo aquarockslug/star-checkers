@@ -1,0 +1,22 @@
+<!doctype html>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Iceberg&display=swap');
+html, body { margin: 0; height: 100%; background: #05070f; overflow: hidden; }
+body { display: flex; align-items: center; justify-content: center; }
+</style>
+
+<body>
+  <script src="littlejs.min.js"></script>
+  <script src="game.js"></script>
+  <script src="ui.js"></script>
+  <script>
+    const _origInit = gameInit;
+    gameInit = function () {
+      _origInit();
+      cpuCount = 3;
+      startGame();
+    };
+    engineInit(gameInit, gameUpdate, gameUpdatePost, gameRender, postGameRender);
+  </script>
+</body>
